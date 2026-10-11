@@ -107,21 +107,21 @@ refuse: *FACECOMP-THRESHOLD*, CONFIDENCE (the run's detection confidence),
 
 (defun facecomp-models ()
   "The model files facecomp is given, as two values: the arguments naming
-them as the sandbox shows them, and the folders to show, each (FOLDER . WHERE).
+them as the sandbox shows them, and the files to show, each (FILE . WHERE).
 The recognition model follows *FACECOMP-BACKEND*, so that it cannot be the
 other model's."
-  (let ((arguments '()) (folders '()) (n 0))
+  (let ((arguments '()) (files '()) (n 0))
     (flet ((model (flag file)
              (when file
-               (let ((path (tuatara.io:native (tuatara.io:expand-path file)))
-                     (where (format nil "/tmp/models/~d" (incf n))))
-                 (push (cons (string-right-trim "/" (tuatara.io:native (tuatara.io:parent-path path))) where) folders)
-                 (setf arguments (append arguments (list flag (format nil "~a/~a" where (tuatara.io:native-file-name path)))))))))
+               (let* ((path (tuatara.io:native (tuatara.io:expand-path file)))
+                      (where (format nil "/tmp/models/~d/~a" (incf n) (tuatara.io:native-file-name path))))
+                 (push (cons path where) files)
+                 (setf arguments (append arguments (list flag where)))))))
       (model "--detector-model" tuatara-user:*facecomp-detector-model*)
       (model "--encoder-model" (if (eq tuatara-user:*facecomp-backend* :arcface)
                                    tuatara-user:*facecomp-arcface-model*
                                    tuatara-user:*facecomp-encoder-model*)))
-    (values arguments folders)))
+    (values arguments files)))
 
 (defun facecomp-copy-name (kind n path)
   "The name the copy of the photo at PATH goes by: KIND (master or photo) and
@@ -172,12 +172,11 @@ AppImage may print a line of its own before; NIL when there is none."
   "What a comparison does: copies the photos into a folder of its own, runs
 facecomp on them shut in, and keeps its report, or why there is none."
   (let* ((program (facecomp-program))
-         (folder (format nil "~afacecomp/run-~36r/" (tuatara.io:native (tuatara.io:cache-directory)) (random (expt 36 8))))
+         (folder (new-private-folder (private-cache-directory "facecomp/")))
          (cancel (tuatara.runtime:job-cancel job))
          (names '()))
     (unless program
       (error "facecomp is not there: install it, or give its path in *facecomp-program*"))
-    (tuatara.io:ensure-private-directory folder)
     (unwind-protect
          (flet ((copies (kind paths)
                   (loop for path in paths
@@ -191,17 +190,18 @@ facecomp on them shut in, and keeps its report, or why there is none."
            (let ((masters (copies "master" (facecomp-job-masters job)))
                  (photos (copies "photo" (facecomp-job-photos job))))
              (setf (facecomp-job-names job) names)
-             (multiple-value-bind (models model-folders) (facecomp-models)
+             (multiple-value-bind (models model-files) (facecomp-models)
                (multiple-value-bind (output outcome said)
-                   (tuatara.io:sandbox-run program (facecomp-arguments masters photos (facecomp-job-confidence job) models)
-                                           :directories (append (list (cons (string-right-trim "/" folder) "/tmp/photos"))
-                                                                ;; a program of yours, an AppImage, seen where it is
-                                                                (and (find #\/ tuatara-user:*facecomp-program*)
-                                                                     (list (string-right-trim "/" (tuatara.io:native (tuatara.io:parent-path program)))))
-                                                                model-folders)
-                                           :environment '(("APPIMAGE_EXTRACT_AND_RUN" "1"))
-                                           :seconds tuatara-user:*facecomp-seconds* :memory (* 4 1024 1024 1024) :file-limit nil
-                                           :cancel cancel)
+                   (let ((tuatara-user:*sandbox-total-memory* (and tuatara-user:*sandbox-total-memory*
+                                                                   (max tuatara-user:*sandbox-total-memory* (* 4 1024 1024 1024)))))
+                     (tuatara.io:sandbox-run program (facecomp-arguments masters photos (facecomp-job-confidence job) models)
+                                             :directories (append (list (cons (string-right-trim "/" folder) "/tmp/photos"))
+                                                                  ;; a program of yours, an AppImage, seen where it is, alone
+                                                                  (and (find #\/ tuatara-user:*facecomp-program*) (list program))
+                                                                  model-files)
+                                             :environment '(("APPIMAGE_EXTRACT_AND_RUN" "1"))
+                                             :seconds tuatara-user:*facecomp-seconds* :memory (* 4 1024 1024 1024) :file-limit nil
+                                             :cancel cancel))
                  (tuatara.runtime:job-check-stop)
                  (let ((report (and output (facecomp-report-json output))))
                    (if (and report (eq outcome :done))

@@ -37,8 +37,8 @@ kitty/tuatara-kitty [--program KITTY] [FILE...]
 ```
 
 runs Tuatara in a kitty of its own, editing the files given, with `M-x kitty`
-opening windows beside the editor's. The editor run is `$TUATARA`, else the
-repository's `tools/tuatara-tui.sh`, else `tuatara` on the `PATH`.
+opening windows beside the editor's. The editor run is `$TUATARA`, else `tuatara`
+on the `PATH`.
 
 ## Its looks
 

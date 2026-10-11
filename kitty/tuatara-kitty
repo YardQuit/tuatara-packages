@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# packages/kitty/tuatara-kitty --- Start a kitty of Tuatara's own.
+# kitty/tuatara-kitty --- Start a kitty of Tuatara's own.
 # Copyright (C) 2026 Michael A Jones.  GPL-3.0-or-later; see LICENSE.
 #
 # tuatara-kitty [--program KITTY] [--hidden] [FILE...]
@@ -14,8 +14,8 @@
 # made the first time with examples only. Remote control is allowed over its
 # own socket alone (allow_remote_control socket-only, given on the command
 # line, which no configuration file can undo), so a program run in it, or a
-# file shown in it, cannot steer it. The editor run is $TUATARA, else the
-# repository's tools/tuatara-tui.sh, else tuatara on the PATH.
+# file shown in it, cannot steer it. The editor run is $TUATARA, else tuatara
+# on the PATH.
 set -euo pipefail
 
 program=kitty hidden=() shell=
@@ -54,10 +54,6 @@ if [ -n "$shell" ]; then
   exec "$program" "${hidden[@]}" "${configs[@]}" --listen-on "$socket" --directory "$directory"
 fi
 
-here=$(cd "$(dirname "$0")" && pwd)
-editor=${TUATARA:-}
-if [ -z "$editor" ]; then
-  if [ -x "$here/../../tools/tuatara-tui.sh" ]; then editor=$here/../../tools/tuatara-tui.sh; else editor=tuatara; fi
-fi
+editor=${TUATARA:-tuatara}
 socket=unix:${XDG_RUNTIME_DIR:-/tmp}/tuatara-kitty-$(od -An -N8 -tx8 /dev/urandom | tr -d ' \n')
 exec "$program" --detach "${hidden[@]}" "${configs[@]}" --listen-on "$socket" --directory "$PWD" "$editor" -- "$@"
