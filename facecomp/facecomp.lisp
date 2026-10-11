@@ -319,11 +319,7 @@ the strict one). facecomp runs shut in the sandbox on copies of the photos, in
 the background; the photos are only read."
   (let* ((buffer (current-buffer))
          ;; the photos marked in the directory shown, not those kept marked elsewhere
-         (marked (and (rimu-list-p buffer)
-                      (let ((directory (tuatara.buffer:buffer-local buffer 'rimu-directory)))
-                        (loop for entry in (rimu-chosen buffer #\*)
-                              when (eq (rimu-leads-to entry) :regular)
-                                collect (tuatara.io:native (rimu-path directory entry))))))
+         (marked (rimu-chosen-paths buffer :files-only t :here-only t))
          (confidence-asked (editor-prefix-argument *editor*)))
     (multiple-value-bind (masters photos)
         (if (>= (length marked) 2)

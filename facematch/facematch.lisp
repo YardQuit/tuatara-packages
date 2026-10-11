@@ -197,18 +197,19 @@ BUFFER, the lines of the other files taken out, as \\<rimu-mode>\\[rimu-take-out
 and the marks of CANDIDATES, the photos compared, taken away."
   (let ((directory (tuatara.buffer:buffer-local buffer 'rimu-directory))
         (marks (rimu-marks buffer))
-        (out (make-hash-table :test 'equalp)) (shown 0))
+        (others '()) (shown 0))
     (dolist (path candidates)
       (when (eql (gethash path marks) #\*) (remhash path marks)))
     (rimu-each-line buffer (lambda (line entry)
                              (declare (ignore line))
                              (if (gethash (rimu-path directory entry) *facematch-ranking*)
                                  (incf shown)
-                                 (setf (gethash (tuatara.io:listed-octets entry) out) t))))
+                                 (push entry others))))
+    ;; only the files the ranking leaves out are taken out, those taken out before shown again
     (setf (tuatara.buffer:buffer-local buffer 'facematch-ranking) t
-          (tuatara.buffer:buffer-local buffer 'rimu-taken-out) out)
+          (tuatara.buffer:buffer-local buffer 'rimu-taken-out) nil)
     ;; read again: a column's texts are found as the directory is read
-    (rimu-update buffer :reread t)
+    (rimu-take-out buffer others :reread t)
     (message "~d photo~:p ranked here, the other lines taken out; \\<rimu-mode>\\[facematch-rank-here] shows the list as it was" shown)))
 
 ;;; Choosing the photos in rimu

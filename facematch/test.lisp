@@ -37,14 +37,18 @@ NAME is there and has its files listed, or TRIES turns have gone."
         (tuatara.frontend.fake:fake-queue-action (tuatara.command:editor-frontend tuatara.command:*editor*)
                                                  (facematch-listed name (1- tries)))))))
 
-(defun facematch-done (&optional (tries 1000))
-  "A turn waiting, without holding up the editor, until no comparison of faces
-runs, or TRIES turns have gone."
+(defun waiting-until (test &optional (tries 1000))
+  "A turn waiting, without holding up the editor, until TEST, a function of
+no arguments, gives true, or TRIES turns have gone."
   (lambda ()
-    (when (and (> tries 1) (find-if #'tuatara.defaults::facematch-job-p tuatara.runtime:*jobs*))
+    (when (and (> tries 1) (not (funcall test)))
       (sleep 0.01)
       (tuatara.frontend.fake:fake-queue-action (tuatara.command:editor-frontend tuatara.command:*editor*)
-                                               (facematch-done (1- tries))))))
+                                               (waiting-until test (1- tries))))))
+
+(defun facematch-done ()
+  "A turn waiting, without holding up the editor, until no comparison of faces runs."
+  (waiting-until (lambda () (not (find-if #'tuatara.defaults::facematch-job-p tuatara.runtime:*jobs*)))))
 
 (define-test (facematch marked-in-rimu)
   (with-test-directory (dir)
@@ -109,12 +113,16 @@ runs, or TRIES turns have gone."
                ;; no ranked list made: that is C-c f f's
                (false (tuatara.buffer:find-buffer "*facematch*")))
              (multiple-value-bind (f editor)
-                 (rimu-session given (list "g f a l i c e RET C-c f m g f z e d RET m C-c f r" (facematch-done) :tick :tick
-                                           "C-c f r")
+                 (rimu-session given (list "g f a l i c e RET C-c f m g f z e d RET m C-c f r" (facematch-done)
+                                           ;; the ranking shown before it is hidden again
+                                           (waiting-until (lambda () (search "ranked here" (or (tuatara.command:editor-message tuatara.command:*editor*) ""))))
+                                           "C-c f r"
+                                           ;; and the list laid out again
+                                           (waiting-until (lambda () (search "notes.txt" (tuatara.buffer:buffer-string (tuatara.defaults::current-buffer))))))
                                :width 160 :height 30)
                (declare (ignore f))
                (let ((lines (rimu-lines editor)))
-                 (true (find-if (lambda (l) (search "notes.txt" l)) lines))
+                 (true (find-if (lambda (l) (search "notes.txt" l)) lines) "~a~%~{~a~%~}" (tuatara.command:editor-message editor) lines)
                  (false (find-if (lambda (l) (search "Almost certain" l)) lines))))
              ;; candidates are those marked in the directory shown: one kept marked elsewhere is not taken
              (tuatara.io:ensure-directories (concatenate 'string (namestring given) "other/x.jpg"))
