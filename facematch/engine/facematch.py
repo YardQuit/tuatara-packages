@@ -29,6 +29,9 @@ import numpy as np
 from insightface.model_zoo.arcface_onnx import ArcFaceONNX
 from insightface.utils.face_align import norm_crop
 
+# a few threads: each costs address space, which the sandbox holds the engine to
+cv2.setNumThreads(4)
+
 DETECTOR = "face_detection_yunet_2023mar.onnx"
 RECOGNISER = "glintr100.onnx"
 
@@ -70,19 +73,66 @@ class Faces:
         """Each face in the photo at PATH as (embedding, area), the embedding of
         unit length, the area of the face's box in pixels; an error when it
         cannot be read."""
-        image = cv2.imread(path, cv2.IMREAD_COLOR)
-        if image is None:
-            raise ValueError("not a picture OpenCV reads")
-        height, width = image.shape[:2]
-        self.detector.setInputSize((width, height))
-        _, found = self.detector.detect(image)
+        image = read_photo(path)
         faces = []
-        for row in (found if found is not None else []):
+        for row in self.detect(image):
             landmarks = row[4:14].reshape(5, 2).astype(np.float32)
             aligned = norm_crop(image, landmark=landmarks, image_size=112)
             vector = self.recogniser.get_feat(aligned).flatten()
             faces.append((vector / np.linalg.norm(vector), float(row[2] * row[3])))
         return faces
+
+    def detect(self, image):
+        """The faces YuNet finds in IMAGE, each a row of its box, landmarks
+        and score in IMAGE's own pixels. It finds faces of moderate size, so a
+        large photo is looked at made smaller, its longest side 640 pixels,
+        then 1280 or 320 when that finds none; the faces are then aligned on
+        the photo itself, nothing of it lost."""
+        height, width = image.shape[:2]
+        for side in (640, 1280, 320):
+            scale = min(1.0, side / max(height, width))
+            small = image if scale == 1.0 else cv2.resize(image, (max(1, round(width * scale)), max(1, round(height * scale))),
+                                                          interpolation=cv2.INTER_AREA)
+            self.detector.setInputSize((small.shape[1], small.shape[0]))
+            _, found = self.detector.detect(small)
+            if found is not None and len(found):
+                found = found.copy()
+                found[:, :14] /= scale
+                return found
+            if scale == 1.0:
+                break
+        return []
+
+
+# The longest side a photo is decoded at: a face is compared at 112 pixels, so
+# more only costs memory (a 108-megapixel photo takes 324 MB decoded whole).
+LONGEST_DECODED = 4000
+
+REDUCED = {1: cv2.IMREAD_COLOR, 2: cv2.IMREAD_REDUCED_COLOR_2, 4: cv2.IMREAD_REDUCED_COLOR_4,
+           8: cv2.IMREAD_REDUCED_COLOR_8}
+
+
+def read_photo(path):
+    """The photo at PATH decoded, its orientation as it says: a large one at a
+    half, a quarter or an eighth of its size, so that its longest side is at
+    most LONGEST_DECODED pixels where that can be done; an error when it is
+    no picture OpenCV reads."""
+    factor = 1
+    try:
+        from PIL import Image
+        Image.MAX_IMAGE_PIXELS = None  # only the header is read, its size checked here
+        with Image.open(path) as header:
+            width, height = header.size
+    except Exception:
+        width = height = 0  # a kind Pillow does not know: decoded whole
+    if width * height > 1_000_000_000:
+        raise ValueError(f"{width} x {height} pixels, over a gigapixel: not read")
+    if width:
+        factor = next((f for f in (1, 2, 4, 8) if max(width, height) / f <= LONGEST_DECODED), 8)
+    image = cv2.imread(path, REDUCED[factor])
+    if image is None:
+        raise ValueError("not a picture OpenCV reads")
+    return image
 
 
 def main_face(found):

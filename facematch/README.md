@@ -34,29 +34,42 @@ In `~/.config/tuatara/init.lisp`, with this repository named as a source:
 
 1. Open the folder with the master photos in rimu (`C-x d`). The preview shows
    the photo under the cursor.
-2. **`C-c m`** marks a photo as master: `M` in the first column. Mark one, or
+2. **`C-c f m`** marks a photo as master: `M` in the first column. Mark one, or
    several of the same person; they're averaged into one template. `u` takes a
    mark away.
 3. Open the folder of the candidates (it may be another one). **`m`** marks
    each candidate (`*`), as for any rimu operation.
-4. **`C-c f`** compares every master marked, in any rimu list, with the
-   candidates marked in this one. `C-u C-c f` asks for a detection confidence
-   for this run (0.8, the strict one).
+4. **`C-c f f`** compares every master marked, in any rimu list, with the
+   candidates marked in the folder this list shows (marks kept in other
+   folders are not taken).
+   `C-u C-c f f` asks for a detection confidence for this run (0.8, the strict
+   one).
 
-The ranking, in `*facematch*`:
+The ranking is a rimu list of its own, `*facematch*`: the masters first, then,
+a line apart, the candidates, the most probable first, each with its ranking
+beside its name. Moving through it, the preview shows each photo; marks and
+rimu's other keys work as in any list.
 
 ```
-2 master photos, averaged into one template
-  ~/case/masters/alice-1.jpg
-  ~/case/masters/alice-2.jpg
-Agreement: the least alike two masters are 0.6123 alike, 99.0% probably one person
-Model: AuraFace-v1, faces found by YuNet 2023mar
-Probabilities: calibrated on LFW, 6000 labelled pairs at even odds, 2026-10-11
+  ~/case/:
+  2 candidates ranked against 2 master photos (the least alike two 0.6123 alike, 99.0% one person): AuraFace-v1 ...
+  master                                       masters/alice-1.jpg
+  master                                       masters/alice-2.jpg
 
-  1.  99.0%  Almost certain     similarity 0.5312  ~/case/photos/p17.jpg
-  2.  62.4%  Likely             similarity 0.2474  ~/case/photos/p03.jpg  (the likeliest of 3 faces)
-  3.   1.2%  Almost no chance   similarity 0.0081  ~/case/photos/p11.jpg
+   99.0%  Almost certain     similarity 0.5312                        photos/p17.jpg
+   62.4%  Likely             similarity 0.2474  likeliest of 3 faces  photos/p03.jpg
+    1.2%  Almost no chance   similarity 0.0081                        photos/p11.jpg
+  not compared: no face found                  photos/p20.jpg
 ```
+
+**`C-c f r`** compares the same way, but shows the ranking in the list you
+are in: beside each photo's name its probability, words and similarity
+(`99.0%  Almost certain  similarity 0.4447  2022-09-25 00.16.53.jpg`), the
+preview on the right, and the lines of the files that were not compared taken
+out, as `K` takes lines out (the files themselves are untouched), and the
+candidates' marks taken away, the masters' `M` kept. `C-c f r` again (or
+`g r`) shows the list as it was. The ranked list `*facematch*` is
+`C-c f f`'s alone.
 
 Each candidate's words follow the ODNI's scale of estimative probability
 (ICD 203):
@@ -71,7 +84,7 @@ Each candidate's words follow the ODNI's scale of estimative probability
 | Very unlikely | 5–20% |
 | Almost no chance | 1–5% |
 
-`RET` on a photo opens it safely; `q` closes the ranking.
+
 
 ## What the probability means
 

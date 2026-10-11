@@ -11,7 +11,12 @@ how probable it is that it shows the same person.
 | Make it 512 numbers | AuraFace-v1's `glintr100.onnx` (fal), run by InsightFace's ArcFace runner on ONNX Runtime | Apache 2.0 |
 | Similarity to probability | a logistic curve fitted on LFW (`calibration.json`) | — |
 
-Several master photos are averaged into one template. Only AuraFace's own
+YuNet finds faces of moderate size, so a large photo (a camera's, a close-up
+profile picture) is looked at made smaller, its longest side 640 pixels (then
+1280 or 320 if that finds none); each face is then aligned and compared on the
+photo itself, at full detail. LFW's photos are smaller than that, so the
+calibration is untouched by it. Several master photos are averaged into one
+template. Only AuraFace's own
 model file is taken from its repository: the other files there carry the
 names of InsightFace's research-only models.
 

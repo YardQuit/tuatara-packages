@@ -33,7 +33,7 @@ fetch https://huggingface.co/fal/AuraFace-v1/resolve/main/LICENSE.md "$cache/mod
 [ -x "$appimagetool" ] || { fetch https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage "$appimagetool"; chmod +x "$appimagetool"; }
 
 if ! podman container exists "$container"; then
-  podman run -d --name "$container" -v "$here:/engine:ro,z" -v "$cache:/cache:z" "$image" sleep infinity >/dev/null
+  podman run -d --name "$container" -v "$cache:/cache:z" "$image" sleep infinity >/dev/null
   podman exec "$container" sh -c 'DEBIAN_FRONTEND=noninteractive apt-get update -qq &&
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq build-essential >/dev/null'
 fi
@@ -59,17 +59,20 @@ podman exec "$container" bash -c '
 [ "${1:-}" = --env ] && { echo "the engine Python is ready in the container $container, at /opt/AppDir/usr/python"; exit 0; }
 
 [ -s "$here/calibration.json" ] || { echo "no engine/calibration.json: run calibrate.py first (see engine/README)" >&2; exit 1; }
+# the engine copied in afresh each build, never read through a mount
+podman exec "$container" rm -rf /engine-now
+podman cp "$here" "$container:/engine-now"
 podman exec "$container" bash -c '
   set -e
   app=/opt/AppDir
   mkdir -p $app/usr/share/facematch/models $app/usr/share/facematch/licenses
-  cp /engine/facematch.py $app/usr/share/facematch/
-  cp /engine/calibration.json /cache/models/face_detection_yunet_2023mar.onnx /cache/models/glintr100.onnx $app/usr/share/facematch/models/
+  cp /engine-now/facematch.py $app/usr/share/facematch/
+  cp /engine-now/calibration.json /cache/models/face_detection_yunet_2023mar.onnx /cache/models/glintr100.onnx $app/usr/share/facematch/models/
   cp /cache/models/LICENSE-YuNet /cache/models/LICENSE-AuraFace.md $app/usr/share/facematch/licenses/
   cat > $app/AppRun <<"EOF"
 #!/bin/sh
 here="$(dirname "$(readlink -f "$0")")"
-export APPDIR="$here" NO_ALBUMENTATIONS_UPDATE=1
+export APPDIR="$here" NO_ALBUMENTATIONS_UPDATE=1 OMP_NUM_THREADS=4 MALLOC_ARENA_MAX=2
 exec "$here/usr/python/bin/python3" -I -s -W ignore::FutureWarning "$here/usr/share/facematch/facematch.py" "$@"
 EOF
   chmod +x $app/AppRun

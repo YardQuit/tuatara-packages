@@ -238,8 +238,15 @@ Even chance, and below."
   "The report of a comparison of faces (\\[facecomp-compare]): the master
 photos, how alike they are when several, and each photo compared, closest
 first, with its match, confidence and similarity. \\<facecomp-mode>\\[push-button] on a
-photo opens it safely; \\[quit-window] closes the report."
+photo, or a click on it, shows the picture beside it; \\[quit-window] closes the report."
   :lighter "facecomp" :interactive nil)
+
+(defun facecomp-show-photo (path)
+  "Show the photo at PATH beside the report, as its picture, drawn in the
+sandbox (IMAGE-VIEW-VISIT); what is no picture it can draw, opened safely."
+  (let ((show (lambda (buffer) (pop-to-buffer buffer :other t))))
+    (or (image-view-visit path show)
+        (visit-path path :safe t :show show))))
 
 (defun facecomp-report-text (report names)
   "The text of the report REPORT, facecomp's read JSON, its photos' names
@@ -257,8 +264,8 @@ in octets."
              (photo (copy)
                ;; the photo's own path, a button opening it safely
                (let* ((file (path copy)) (start at))
-                 (put (abbreviated-path file))
-                 (push (list start at (lambda () (visit-path file :safe t))) buttons))))
+                 (put (abbreviated-path file) :link)
+                 (push (list start at (lambda () (facecomp-show-photo file))) buttons))))
       (let ((masters (items "masters"))
             (threshold (tuatara.text:json-get report "threshold"))
             (agreement (tuatara.text:json-get report "enrolment_agreement")))
@@ -364,14 +371,20 @@ masters and the photos."
   "Compare the faces in photos with the face of a master photo, or of several
 photos of one person averaged into one template, by facecomp, and show how
 alike each is in *facecomp*: a match, a confidence label (Almost certain, Very
-likely, ...) and the similarity. In a rimu list with two or more files marked,
-asks which of them are masters (several separated by commas) and compares the
-rest; elsewhere asks for the masters, then for the photos, one at a time. With
+likely, ...) and the similarity. In a rimu list with two or more files marked
+in the directory it shows, asks which of them are masters (several separated
+by commas) and compares the rest; elsewhere asks for the masters, then for the
+photos, one at a time. With
 \\[universal-argument], asks for a detection confidence for this run (0.8 is
 the strict one). facecomp runs shut in the sandbox on copies of the photos, in
 the background; the photos are only read."
   (let* ((buffer (current-buffer))
-         (marked (rimu-chosen-paths buffer :files-only t))
+         ;; the photos marked in the directory shown, not those kept marked elsewhere
+         (marked (and (rimu-list-p buffer)
+                      (let ((directory (tuatara.buffer:buffer-local buffer 'rimu-directory)))
+                        (loop for entry in (rimu-chosen buffer #\*)
+                              when (eq (rimu-leads-to entry) :regular)
+                                collect (tuatara.io:native (rimu-path directory entry))))))
          (confidence-asked (editor-prefix-argument *editor*)))
     (multiple-value-bind (masters photos)
         (if (>= (length marked) 2)
@@ -397,6 +410,7 @@ the background; the photos are only read."
 
 (defun install-facecomp ()
   "Have \\[check-health] say what compares faces here."
+  (buttons-in-mode 'facecomp-mode "the report of faces compared (\\[facecomp-compare])")
   (pushnew 'facecomp-health-words *health-decoder-functions*))
 
 (install-facecomp)
