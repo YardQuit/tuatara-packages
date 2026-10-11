@@ -48,56 +48,15 @@ for one run's.")
   (export '(tuatara-user::*facematch-program* tuatara-user::*facematch-detection-confidence* tuatara-user::*facematch-seconds*)
           :tuatara-user))
 
-;;; The engine
-
-(defun facematch-program ()
-  "The full path of the engine (*FACEMATCH-PROGRAM*), or NIL when it is not
-there: a name looked for where the sandbox finds programs, a path taken as it is."
-  (let ((name tuatara-user:*facematch-program*))
-    (if (find #\/ name)
-        (let ((path (tuatara.io:native (tuatara.io:expand-path name))))
-          (and (eq :regular (tuatara.io:path-kind path)) path))
-        (tuatara.io:sandbox-find-program name))))
-
-(defun facematch-appimage-p (path)
-  "True when the file at PATH is an AppImage: an ELF program marked AI 2."
-  (let ((head (ignore-errors (tuatara.io:file-head path 12))))
-    (and head (>= (length head) 11)
-         (tuatara.io:octets-at-p head '(#x7f 69 76 70))
-         (= (aref head 8) 65) (= (aref head 9) 73) (= (aref head 10) 2))))
-
-(defun facematch-unpacked (program cancel)
-  "The folder where the AppImage PROGRAM is unpacked, unpacking it the first
-time (run with --appimage-extract, outside the sandbox: your own program),
-once for each version of it, the older ones taken away. CANCEL, a cons, a
-job's, is heeded once it is done."
-  (let* ((stamp (tuatara.io:path-stamp program))
-         (root (format nil "~afacematch/" (tuatara.io:native (tuatara.io:cache-directory))))
-         (folder (format nil "~aengine-~d-~d/" root (tuatara.io:stamp-size stamp) (tuatara.io:stamp-mtime stamp)))
-         (unpacked (concatenate 'string folder "squashfs-root/")))
-    (unless (eq :regular (tuatara.io:path-kind (concatenate 'string unpacked "AppRun")))
-      (dolist (old (ignore-errors (tuatara.io:directory-entries root)))
-        (when (uiop:string-prefix-p "engine-" (first old))
-          (ignore-errors (tuatara.io:delete-tree (concatenate 'string root (first old))))))
-      (tuatara.io:ensure-private-directory folder)
-      (multiple-value-bind (output ended-well)
-          (tuatara.io:program-output (list program "--appimage-extract") :capture nil :seconds 600 :directory folder)
-        (declare (ignore output))
-        (when (car cancel) (ignore-errors (tuatara.io:delete-tree folder)) (tuatara.runtime:job-check-stop))
-        (unless (and ended-well (eq :regular (tuatara.io:path-kind (concatenate 'string unpacked "AppRun"))))
-          (ignore-errors (tuatara.io:delete-tree folder))
-          (error "~a could not be unpacked" (abbreviated-path program)))))
-    unpacked))
-
 ;;; A comparison, in the background
 
 (defstruct (facematch-job (:include tuatara.runtime:job) (:constructor make-facematch-job (buffer masters candidates confidence &optional here)) (:copier nil))
   "The photos CANDIDATES compared with the master photos MASTERS by the
 engine, with CONFIDENCE for this run or NIL, a job for BUFFER: HERE when the
 ranking is to show in BUFFER itself, the ranked list kept in the background;
-REPORT, what it said, read JSON; NAMES, each copy's name as it saw it with the
-photo's path; FAILURE, why there is no report."
-  masters candidates confidence here report names failure)
+REPORT, what it said, read JSON; RANKING and GROUPS, its ranking as
+FACEMATCH-RANKING gives them; FAILURE, why there is no report."
+  masters candidates confidence here report ranking groups failure)
 
 (setf (documentation 'facematch-job-p 'function) "True when OBJECT is a FACEMATCH-JOB.")
 
@@ -108,13 +67,6 @@ photo's path; FAILURE, why there is no report."
   :verb "compare the faces"
   :left-words "nothing compared")
 
-(defun facematch-copy-name (kind n path)
-  "The name the copy of the photo at PATH goes by: KIND (master or candidate)
-and N, with PATH's ending when it is a short one of letters and digits."
-  (let ((ending (tuatara.io:native-file-type path)))
-    (format nil "~a-~d~@[.~(~a~)~]" kind n
-            (and ending (<= 1 (length ending) 5) (every #'alphanumericp ending) ending))))
-
 (defun facematch-arguments (masters candidates confidence)
   "The engine's arguments comparing CANDIDATES with MASTERS, the names of
 their copies as the sandbox shows them, with CONFIDENCE for the run."
@@ -123,70 +75,34 @@ their copies as the sandbox shows them, with CONFIDENCE for the run."
           (list "--json" "--candidate")
           candidates))
 
-(defun facematch-original-names (text names)
-  "TEXT with each copy's name in it (NAMES, each (COPY . PATH)) written as the
-photo's own path, ~ for your home folder."
-  (loop for (copy . path) in names
-        do (setf text (cl-ppcre:regex-replace-all (cl-ppcre:quote-meta-chars copy) text
-                                                  (lambda (match) (declare (ignore match)) (abbreviated-path path))
-                                                  :simple-calls t)))
-  text)
-
 (defun facematch-work (job)
-  "What a comparison does: copies the photos into a folder of its own, runs
-the engine on them shut in (an AppImage from its unpacked folder), and keeps
-its report, or why there is none."
-  (let* ((program (or (facematch-program)
-                      (error "The facematch engine is not there: build or install it, or give its path in *facematch-program*")))
-         (cancel (tuatara.runtime:job-cancel job))
-         (names '()))
-    (multiple-value-bind (run shown)
-        (if (facematch-appimage-p program)
-            (let ((unpacked (facematch-unpacked program cancel)))
-              (values (concatenate 'string unpacked "AppRun") (list (string-right-trim "/" unpacked))))
-            (values program (and (find #\/ tuatara-user:*facematch-program*) (list program))))
+  "What a comparison does: runs the engine shut in on copies of the photos
+\(RUN-ON-COPIES), and keeps its ranking, or why there is none."
+  (let ((program (or (user-program-path tuatara-user:*facematch-program*)
+                     (error "The facematch engine is not there: build or install it, or give its path in *facematch-program*"))))
+    (multiple-value-bind (output outcome said names)
+        (run-on-copies program (list (cons "master" (facematch-job-masters job)) (cons "candidate" (facematch-job-candidates job)))
+                       (lambda (masters candidates) (facematch-arguments masters candidates (facematch-job-confidence job)))
+                       :seconds tuatara-user:*facematch-seconds* :memory (* 16 1024 1024 1024)
+                       :cancel (tuatara.runtime:job-cancel job))
       (tuatara.runtime:job-check-stop)
-      (let ((folder (new-private-folder (private-cache-directory "facematch/runs/"))))
-        (unwind-protect
-             (flet ((copies (kind paths)
-                      (loop for path in paths
-                            for n from 1
-                            for name = (facematch-copy-name kind n path)
-                            do (unless (tuatara.io:copy-regular-file path (concatenate 'string folder name) :cancel cancel)
-                                 (tuatara.runtime:job-check-stop)
-                                 (error "~a could not be copied for the engine" (abbreviated-path path)))
-                               (push (cons (format nil "/tmp/photos/~a" name) path) names)
-                            collect (format nil "/tmp/photos/~a" name))))
-               (let ((masters (copies "master" (facematch-job-masters job)))
-                     (candidates (copies "candidate" (facematch-job-candidates job))))
-                 (setf (facematch-job-names job) names)
-                 (multiple-value-bind (output outcome said)
-                     (let ((tuatara-user:*sandbox-total-memory* (and tuatara-user:*sandbox-total-memory*
-                                                                     (max tuatara-user:*sandbox-total-memory* (* 16 1024 1024 1024)))))
-                       (tuatara.io:sandbox-run run (facematch-arguments masters candidates (facematch-job-confidence job))
-                                               :directories (cons (cons (string-right-trim "/" folder) "/tmp/photos") shown)
-                                               :seconds tuatara-user:*facematch-seconds* :memory (* 16 1024 1024 1024)
-                                               :cancel cancel))
-                   (tuatara.runtime:job-check-stop)
-                   (let* ((text (and output (sb-ext:octets-to-string output :external-format '(:utf-8 :replacement #\?))))
-                          (start (and text (position #\{ text)))
-                          (report (and start (ignore-errors (tuatara.text:json-read text :start start)))))
-                     (if (and report (eq outcome :done))
-                         (setf (facematch-job-report job) report)
-                         (setf (facematch-job-failure job)
-                               (case outcome
-                                 (:unavailable (format nil "The engine runs only shut in the sandbox, and there is none here: ~a" said))
-                                 (:timeout (format nil "The engine was stopped after ~d seconds (*facematch-seconds*)" tuatara-user:*facematch-seconds*))
-                                 (t (facematch-original-names
-                                     (string-trim '(#\Space #\Newline) (if (plusp (length said)) said "The engine ended without a report"))
-                                     names)))))))))
-          (ignore-errors (tuatara.io:delete-tree folder)))))))
+      (let ((report (and (eq outcome :done) (copies-output-json output))))
+        (if (null report)
+            (setf (facematch-job-failure job) (run-on-copies-failure "The engine" outcome said names 'tuatara-user:*facematch-seconds*))
+            (multiple-value-bind (ranking groups) (facematch-ranking report names)
+              (if (every #'null groups)
+                  (setf (facematch-job-failure job)
+                        (format nil "Nothing compared: ~{~a~^; ~}"
+                                (map 'list (lambda (e) (copies-original-names e names)) (tuatara.text:json-items report "errors"))))
+                  (setf (facematch-job-report job) report
+                        (facematch-job-ranking job) ranking
+                        (facematch-job-groups job) (remove nil groups)))))))))
 
 ;;; The ranking, in rimu
 
 (defvar *facematch-ranking* (make-hash-table :test 'equal)
   "The ranking of the last comparison: each photo's full name to what the
-ranking column shows beside it (FACEMATCH-RANKING-CELL).")
+ranking column shows beside it (FACEMATCH-RANKING).")
 
 (defun facematch-label-face (percent)
   "The face a candidate PERCENT probable is shown in: Very likely and above,
@@ -219,59 +135,59 @@ a comparison, or a list the ranking was asked for in (\\<rimu-mode>\\[facematch-
             (tuatara.text:json-text report "model") (tuatara.text:json-text report "detector")
             (or (tuatara.text:json-text report "calibration") "nothing said"))))
 
-(defun facematch-take-in-ranking (report names)
-  "Keep the ranking of REPORT, the engine's read JSON, in *FACEMATCH-RANKING*,
-its photos' names (NAMES, each (COPY . PATH)) as theirs; the masters and the
-candidates in ranked order (those not compared after) as two lists of paths."
-  (flet ((path (copy) (or (cdr (assoc copy names :test #'string=)) copy)))
-    (let ((masters (map 'list #'path (tuatara.text:json-items report "masters")))
-          (ranked '()) (left-out '()))
-      (clrhash *facematch-ranking*)
-      (dolist (m masters)
-        (setf (gethash m *facematch-ranking*) (cons "master" :rimu-marked-other)))
+(defun facematch-ranking (report names)
+  "The ranking of REPORT, the engine's read JSON, its copies' names taken as
+their photos' (NAMES, as RUN-ON-COPIES gives them), as two values: a table of
+each photo's full name to what the ranking column shows beside it
+\(*FACEMATCH-RANKING*), and a list of the masters and of the candidates in
+ranked order, those not compared after, as paths."
+  (let ((ranking (make-hash-table :test 'equal)) (masters '()) (ranked '()) (left-out '()))
+    (flet ((path (copy) (gethash copy names copy)))
+      (loop for m across (tuatara.text:json-items report "masters")
+            do (let ((photo (path m)))
+                 (push photo masters)
+                 (setf (gethash photo ranking) (cons "master" :rimu-marked-other))))
       (loop for r across (tuatara.text:json-items report "results")
             do (let ((photo (path (tuatara.text:json-text r "photo")))
                      (percent (tuatara.text:json-get r "probability"))
                      (similarity (tuatara.text:json-get r "similarity"))
                      (faces (tuatara.text:json-integer r "faces")))
                  (push photo ranked)
-                 (setf (gethash photo *facematch-ranking*)
+                 (setf (gethash photo ranking)
                        (list (cons (format nil "~5,1f%  ~17a" (if (realp percent) percent 0)
                                            (or (tuatara.text:json-text r "label") ""))
                                    (facematch-label-face (if (realp percent) percent 0)))
                              (cons (format nil "~@[ similarity ~,4f~]~@[  likeliest of ~d faces~]"
                                            (and (realp similarity) similarity) (and faces (> faces 1) faces))
                                    nil)))))
-      ;; each photo the engine could not compare, with why
+      ;; each photo the engine could not compare, as "COPY: why"
       (loop for e across (tuatara.text:json-items report "errors")
-            do (let ((copy (find-if (lambda (pair) (uiop:string-prefix-p (format nil "~a: " (car pair)) e)) names)))
-                 (when copy
-                   (setf (gethash (cdr copy) *facematch-ranking*)
-                         (cons (format nil "not compared: ~a" (one-line (subseq e (+ 2 (length (car copy)))))) :warning))
-                   (unless (or (member (cdr copy) masters :test #'string=) (member (cdr copy) ranked :test #'string=))
-                     (push (cdr copy) left-out)))))
-      (list masters (append (nreverse ranked) (nreverse left-out))))))
+            do (let* ((colon (search ": " e))
+                      (photo (and colon (gethash (subseq e 0 colon) names))))
+                 (when photo
+                   (unless (gethash photo ranking) (push photo left-out))
+                   (setf (gethash photo ranking)
+                         (cons (format nil "not compared: ~a" (one-line (subseq e (+ colon 2)))) :warning)))))
+      (values ranking (list (nreverse masters) (nconc (nreverse ranked) (nreverse left-out)))))))
 
 (defmethod tuatara.runtime:job-take-in ((job facematch-job))
   "Show the ranking as a rimu list, the masters first, then the candidates
 ranked, each with its ranking beside it; or say why there is none."
   (let ((report (facematch-job-report job)))
     (cond (report
-           (let ((groups (remove nil (facematch-take-in-ranking report (facematch-job-names job)))))
-             (if (notany #'identity groups)
-                 (message "Nothing compared: ~{~a~^; ~}" (map 'list (lambda (e) (facematch-original-names e (facematch-job-names job)))
-                                                            (tuatara.text:json-items report "errors")))
-                 (let ((here (and (facematch-job-here job) (live-buffer-p (facematch-job-buffer job)) (facematch-job-buffer job)))
-                       (old (tuatara.buffer:find-buffer "*facematch*")))
-                   ;; a ranked list of an earlier comparison would show this one's ranking beside its photos
-                   (when old (tuatara.buffer:kill-buffer old))
-                   (if here
-                       (facematch-show-ranking-in here (facematch-job-candidates job))
-                       (let ((list (rimu-show-paths groups :name "*facematch*" :words (facematch-ranking-words report) :safe t)))
-                         (setf (tuatara.buffer:buffer-local list 'facematch-ranking) t
-                               (tuatara.buffer:buffer-local list 'rimu-details) nil)
-                         (message "Faces compared: ~d candidate~:p ranked; the preview shows each"
-                                  (length (tuatara.text:json-items report "results")))))))))
+           (let ((here (and (facematch-job-here job) (live-buffer-p (facematch-job-buffer job)) (facematch-job-buffer job)))
+                 (old (tuatara.buffer:find-buffer "*facematch*")))
+             (setf *facematch-ranking* (facematch-job-ranking job))
+             ;; a ranked list of an earlier comparison would show this one's ranking beside its photos
+             (when old (tuatara.buffer:kill-buffer old))
+             (if here
+                 (facematch-show-ranking-in here (facematch-job-candidates job))
+                 (let ((list (rimu-show-paths (facematch-job-groups job) :name "*facematch*"
+                                                                         :words (facematch-ranking-words report) :safe t)))
+                   (setf (tuatara.buffer:buffer-local list 'facematch-ranking) t
+                         (tuatara.buffer:buffer-local list 'rimu-details) nil)
+                   (message "Faces compared: ~d candidate~:p ranked; the preview shows each"
+                            (length (tuatara.text:json-items report "results")))))))
           ((facematch-job-failure job) (message "~a" (facematch-job-failure job)))
           (t (message "~a" (tuatara.runtime:job-ending-words job))))))
 
@@ -339,7 +255,7 @@ with HERE the ranking is to show in this list, else in a list of its own."
     (cond ((not (rimu-list-p buffer)) (message "Candidates are marked in a rimu list (\\[rimu]), and compared from it"))
           ((null masters) (message "No master photo is marked: \\<rimu-mode>\\[facematch-mark-master] marks one (M)"))
           ((null candidates) (message "No candidate is marked in this directory: \\<rimu-mode>\\[rimu-mark] marks one"))
-          ((null (facematch-program))
+          ((null (user-program-path tuatara-user:*facematch-program*))
            (message "The facematch engine is not there: build or install it, or give its path in *facematch-program*"))
           (t (let ((confidence (if confidence-asked (facematch-read-confidence) tuatara-user:*facematch-detection-confidence*)))
                (when (and confidence (not (and (realp confidence) (< 0 confidence) (<= confidence 1))))
@@ -378,7 +294,7 @@ Where the ranking shows already, show the list as it was instead."
 
 (defun facematch-health-words ()
   "What compares faces by probability here, as \\[check-health] says it."
-  (let ((program (facematch-program)))
+  (let ((program (user-program-path tuatara-user:*facematch-program*)))
     (format nil "Faces ranked by probability by ~:[none: build the facematch engine, or give its path in *facematch-program*~;~:*~a, shut in~]"
             (and program (abbreviated-path program)))))
 

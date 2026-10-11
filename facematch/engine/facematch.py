@@ -1,22 +1,25 @@
 #!/usr/bin/env python3
 # facematch/engine/facematch.py --- Faces in candidate photos compared with master photos' face.
 # Copyright (C) 2026 Michael A Jones.  GPL-3.0-or-later; see LICENSE.
-#
-# Finds the faces in one or more master photos of one person and in each
-# candidate photo, and says for each candidate how probable it is that it
-# shows the same person: the probability, its words on the ODNI's scale
-# (Almost certain ... Almost no chance) and the cosine similarity behind it,
-# the candidates ranked most probable first.
-#
-# Faces are found with YuNet (OpenCV Zoo, MIT), aligned on their five
-# landmarks with InsightFace's norm_crop, and made 512 numbers by AuraFace-v1
-# (fal, Apache 2.0) through InsightFace's ArcFace runner. Several masters are
-# averaged into one template. A similarity becomes a probability by the
-# logistic curve in calibration.json, fitted on LFW's 6000 labelled pairs at
-# even odds (calibrate.py).
-#
-# Usage: facematch --master PHOTO [--master PHOTO...] --candidate PHOTO... [--json]
-#                  [--detection-confidence 0.7] [--models DIR]
+
+"""Faces in candidate photos compared with master photos' face.
+
+Finds the faces in one or more master photos of one person and in each
+candidate photo, and says for each candidate how probable it is that it
+shows the same person: the probability, its words on the ODNI's scale
+(Almost certain ... Almost no chance) and the cosine similarity behind it,
+the candidates ranked most probable first.
+
+Faces are found with YuNet (OpenCV Zoo, MIT), aligned on their five
+landmarks with InsightFace's norm_crop, and made 512 numbers by AuraFace-v1
+(fal, Apache 2.0) through InsightFace's ArcFace runner. Several masters are
+averaged into one template. A similarity becomes a probability by the
+logistic curve in calibration.json, fitted on LFW's 6000 labelled pairs at
+even odds (calibrate.py).
+
+Usage: facematch --master PHOTO [--master PHOTO...] --candidate PHOTO... [--json]
+                 [--detection-confidence 0.7] [--models DIR]
+"""
 
 import argparse
 import json
@@ -46,7 +49,6 @@ def label(percent):
     for least, words in LABELS:
         if percent >= least:
             return words
-    return LABELS[-1][1]
 
 
 def models_folder(given):
@@ -136,9 +138,8 @@ def read_photo(path):
 
 
 def main_face(found):
-    """The embedding of the main face of a photo's FOUND faces: the largest,
-    as the person a photo is of stands nearest and in the middle, and the
-    detector may be surer of a sharp face behind."""
+    """The embedding of the main face of a photo's FOUND faces: the largest."""
+    # the person a photo is of stands nearest; the detector may be surer of a sharp face behind
     return max(found, key=lambda f: f[1])[0]
 
 
@@ -151,8 +152,8 @@ def load_calibration(folder):
 
 def probability(similarity, calibration):
     """The probability, 0.01 to 0.99, that two faces SIMILARITY alike are one
-    person's: held within the ODNI's scale, as no calibration on a few
-    thousand pairs supports a certainty beyond it."""
+    person's, held within the ODNI's scale."""
+    # no calibration on a few thousand pairs supports a certainty beyond it
     z = calibration["slope"] * similarity + calibration["intercept"]
     return min(0.99, max(0.01, 1.0 / (1.0 + math.exp(-z))))
 
@@ -217,7 +218,9 @@ def text_report(report):
 
 
 def main():
-    parser = argparse.ArgumentParser(prog="facematch", description=__doc__)
+    """Compare the photos named on the command line and print the report."""
+    parser = argparse.ArgumentParser(prog="facematch", description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--master", action="append", required=True, metavar="PHOTO",
                         help="a photo of the person looked for; several are averaged into one template")
     parser.add_argument("--candidate", nargs="+", required=True, metavar="PHOTO", help="the photos compared")

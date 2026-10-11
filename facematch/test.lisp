@@ -4,7 +4,7 @@
 (in-package #:tuatara.tests)
 
 (define-test facematch
-  :description "The facematch package: master photos marked M in rimu (in any list), candidates marked as for any operation; the engine run shut in on private copies named so that no photo's name or folder reaches it; the ranking shown with the photos' own paths, each with its probability and the ODNI's words, coloured; an AppImage told apart from another program.")
+  :description "The facematch package: master photos marked M in rimu (in any list), candidates marked as for any operation; the engine run shut in on private copies named so that no photo's name or folder reaches it; the ranking shown with the photos' own paths, each with its probability and the ODNI's words, coloured.")
 
 (defun facematch-stand-in (dir given)
   "Write in DIR a stand-in for the engine: it fails unless it sees the first
@@ -14,11 +14,11 @@ ranking naming the copies, with its arguments; its path."
     (ensure-directories-exist path)
     (alexandria:write-string-into-file
      (format nil "#!/bin/sh
-[ -f /tmp/photos/master-1.jpg ] || { echo 'no copy of /tmp/photos/master-1.jpg' >&2; exit 1; }
+[ -f /tmp/files/master-1.jpg ] || { echo 'no copy of /tmp/files/master-1.jpg' >&2; exit 1; }
 [ -e '~a' ] && { echo 'the photos folder is seen' >&2; exit 1; }
-printf '{\"masters\":[\"/tmp/photos/master-1.jpg\"],\"model\":\"AuraFace-v1\",\"detector\":\"YuNet 2023mar\",\"calibration\":\"LFW, 6000 labelled pairs at even odds\",'
-printf '\"results\":[{\"photo\":\"/tmp/photos/candidate-2.jpg\",\"faces\":1,\"similarity\":0.61,\"probability\":97.2,\"label\":\"Almost certain\"},'
-printf '{\"photo\":\"/tmp/photos/candidate-1.png\",\"faces\":3,\"similarity\":0.05,\"probability\":3.1,\"label\":\"Almost no chance\"}],'
+printf '{\"masters\":[\"/tmp/files/master-1.jpg\"],\"model\":\"AuraFace-v1\",\"detector\":\"YuNet 2023mar\",\"calibration\":\"LFW, 6000 labelled pairs at even odds\",'
+printf '\"results\":[{\"photo\":\"/tmp/files/candidate-2.jpg\",\"faces\":1,\"similarity\":0.61,\"probability\":97.2,\"label\":\"Almost certain\"},'
+printf '{\"photo\":\"/tmp/files/candidate-1.png\",\"faces\":3,\"similarity\":0.05,\"probability\":3.1,\"label\":\"Almost no chance\"}],'
 printf '\"errors\":[],\"arguments\":\"%s\"}\\n' \"$*\"
 " (string-right-trim "/" (namestring given)))
      path :if-exists :supersede)
@@ -85,7 +85,7 @@ runs, or TRIES turns have gone."
                (false (find-if (lambda (l) (search "notes.txt" l)) lines))
                (true (tuatara.frontend.fake:fake-frame-showing f "2 candidates ranked against 1 master photo"))
                (true (tuatara.frontend.fake:fake-frame-showing f "probabilities calibrated on LFW"))
-               (false (find-if (lambda (l) (search "/tmp/photos" l)) lines))))
+               (false (find-if (lambda (l) (search "/tmp/files" l)) lines))))
         (setf tuatara-user:*facematch-program* program))
       ;; C-c f r: the same comparison, the ranking shown in the case folder's own list beside the
       ;; names, the other lines taken out, no ranked list made; C-c f r again, back
@@ -124,25 +124,27 @@ runs, or TRIES turns have gone."
                (true (tuatara.frontend.fake:fake-frame-showing f "Comparing 1 candidate with 1 master photo"))))
         (setf tuatara-user:*facematch-program* program)))))
 
-(define-test (facematch arguments-and-names)
+(define-test (facematch arguments-and-faces)
   ;; the engine's arguments: each master, the run's confidence, then the candidates
-  (is equal '("--master" "/tmp/photos/master-1.jpg" "--master" "/tmp/photos/master-2.png" "--detection-confidence" "0.8000"
-              "--json" "--candidate" "/tmp/photos/candidate-1.jpg")
-      (tuatara.defaults::facematch-arguments '("/tmp/photos/master-1.jpg" "/tmp/photos/master-2.png") '("/tmp/photos/candidate-1.jpg") 0.8))
-  ;; a copy's name: its kind, its number and a plain ending, nothing else of the photo's name
-  (is string= "candidate-2.jpg" (tuatara.defaults::facematch-copy-name "candidate" 2 "/x/Crowd [1]*.JPG"))
-  (is string= "master-1" (tuatara.defaults::facematch-copy-name "master" 1 "/x/name.a b"))
+  (is equal '("--master" "/tmp/files/master-1.jpg" "--master" "/tmp/files/master-2.png" "--detection-confidence" "0.8000"
+              "--json" "--candidate" "/tmp/files/candidate-1.jpg")
+      (tuatara.defaults::facematch-arguments '("/tmp/files/master-1.jpg" "/tmp/files/master-2.png") '("/tmp/files/candidate-1.jpg") 0.8))
   ;; the ODNI's words coloured by how probable
   (is eq :info (tuatara.defaults::facematch-label-face 97.2))
   (is eq :warning (tuatara.defaults::facematch-label-face 50))
-  (is eq :error (tuatara.defaults::facematch-label-face 3.1))
-  ;; an AppImage told apart by its header, not its name
-  (with-test-directory (dir)
-    (let ((appimage (namestring (merge-pathnames "engine.bin" dir)))
-          (plain (namestring (merge-pathnames "engine.AppImage" dir))))
-      (with-open-file (out appimage :direction :output :element-type '(unsigned-byte 8))
-        (write-sequence (coerce #(#x7f 69 76 70 2 1 1 0 65 73 2 0 0 0 0 0) '(vector (unsigned-byte 8))) out))
-      (with-open-file (out plain :direction :output :element-type '(unsigned-byte 8))
-        (write-sequence (coerce #(#x7f 69 76 70 2 1 1 0 0 0 0 0 0 0 0 0) '(vector (unsigned-byte 8))) out))
-      (true (tuatara.defaults::facematch-appimage-p appimage))
-      (false (tuatara.defaults::facematch-appimage-p plain)))))
+  (is eq :error (tuatara.defaults::facematch-label-face 3.1)))
+
+(define-test (facematch ranking-read)
+  ;; the masters first, then the candidates ranked, one not compared after them with why, each once
+  (let ((names (make-hash-table :test 'equal))
+        (report (tuatara.text:json-read "{\"masters\":[\"/tmp/files/master-1.jpg\"],
+\"results\":[{\"photo\":\"/tmp/files/candidate-2.jpg\",\"probability\":60.0,\"label\":\"Likely\"}],
+\"errors\":[\"/tmp/files/candidate-1.png: no face found\",\"/tmp/files/candidate-1.png: still none\",\"/tmp/files/master-1.jpg: two faces\"]}")))
+    (setf (gethash "/tmp/files/master-1.jpg" names) "/case/alice.jpg"
+          (gethash "/tmp/files/candidate-1.png" names) "/case/crowd.png"
+          (gethash "/tmp/files/candidate-2.jpg" names) "/case/zed.jpg")
+    (multiple-value-bind (ranking groups) (tuatara.defaults::facematch-ranking report names)
+      (is equal '(("/case/alice.jpg") ("/case/zed.jpg" "/case/crowd.png")) groups)
+      (is string= "not compared: still none" (car (gethash "/case/crowd.png" ranking)))
+      (is string= "not compared: two faces" (car (gethash "/case/alice.jpg" ranking)))
+      (true (search "60.0%  Likely" (car (first (gethash "/case/zed.jpg" ranking))))))))

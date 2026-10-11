@@ -14,14 +14,14 @@ naming the copies, with its arguments, or with FAIL says it found no face; its p
     (ensure-directories-exist path)
     (alexandria:write-string-into-file
      (format nil "#!/bin/sh
-[ -f /tmp/photos/master-1.jpg ] || { echo 'no copy of /tmp/photos/master-1.jpg' >&2; exit 1; }
+[ -f /tmp/files/master-1.jpg ] || { echo 'no copy of /tmp/files/master-1.jpg' >&2; exit 1; }
 [ -e '~a' ] && { echo 'the photos folder is seen' >&2; exit 1; }
-~:[~;echo 'master photo: no face detected in /tmp/photos/master-1.jpg' >&2; exit 1
+~:[~;echo 'master photo: no face detected in /tmp/files/master-1.jpg' >&2; exit 1
 ~]echo 'a line before the report'
-printf '{\"masters\":[\"/tmp/photos/master-1.jpg\",\"/tmp/photos/master-2.jpg\"],\"backend\":\"sface\",\"threshold\":0.316,\"embedding_dimensions\":128,\"enrolment_agreement\":0.21,'
-printf '\"results\":[{\"photo\":\"/tmp/photos/photo-1.png\",\"faces_detected\":2,\"similarity\":0.7123,\"match_percent\":92.3,\"confidence\":\"Very likely\"},'
-printf '{\"photo\":\"/tmp/photos/photo-2\",\"faces_detected\":1,\"similarity\":0.1,\"match_percent\":12.0,\"confidence\":\"Very unlikely\"}],'
-printf '\"errors\":[\"/tmp/photos/photo-3.jpg: no face detected\"],\"arguments\":\"%s\"}\\n' \"$*\"
+printf '{\"masters\":[\"/tmp/files/master-1.jpg\",\"/tmp/files/master-2.jpg\"],\"backend\":\"sface\",\"threshold\":0.316,\"embedding_dimensions\":128,\"enrolment_agreement\":0.21,'
+printf '\"results\":[{\"photo\":\"/tmp/files/photo-1.png\",\"faces_detected\":2,\"similarity\":0.7123,\"match_percent\":92.3,\"confidence\":\"Very likely\"},'
+printf '{\"photo\":\"/tmp/files/photo-2\",\"faces_detected\":1,\"similarity\":0.1,\"match_percent\":12.0,\"confidence\":\"Very unlikely\"}],'
+printf '\"errors\":[\"/tmp/files/photo-3.jpg: no face detected\"],\"arguments\":\"%s\"}\\n' \"$*\"
 " (string-right-trim "/" (namestring given)) fail)
      path)
     (sb-posix:chmod path #o755)
@@ -49,11 +49,11 @@ printf '\"errors\":[\"/tmp/photos/photo-3.jpg: no face detected\"],\"arguments\"
           (true report)
           ;; its arguments: the copies by their own names, the settings as it reads them
           (let ((arguments (tuatara.text:json-text report "arguments")))
-            (true (search "--master /tmp/photos/master-1.jpg /tmp/photos/master-2.jpg" arguments))
+            (true (search "--master /tmp/files/master-1.jpg /tmp/files/master-2.jpg" arguments))
             (true (search "--backend arcface" arguments))
             (true (search "--detection-confidence 0.8000" arguments))
             (true (search "--max 5" arguments))
-            (true (search "--json --slave /tmp/photos/photo-1.png /tmp/photos/photo-2 /tmp/photos/photo-3.jpg" arguments))
+            (true (search "--json --slave /tmp/files/photo-1.png /tmp/files/photo-2 /tmp/files/photo-3.jpg" arguments))
             (false (search "alice" arguments))
             (false (search "*" arguments)))
           ;; the report: the photos' own paths, the closest first, the match coloured, the agreement warned of
@@ -68,12 +68,12 @@ printf '\"errors\":[\"/tmp/photos/photo-3.jpg: no face detected\"],\"arguments\"
               (has (format nil "~a~%  92.3% match, Very likely   similarity 0.7123   the best of 2 faces in the photo"
                            (tuatara.command:abbreviated-path (third photos))))
               (has (format nil "~a~%  12.0% match, Very unlikely" (tuatara.command:abbreviated-path (fourth photos))))
-              (false (search "/tmp/photos" text)))
+              (false (search "/tmp/files" text)))
             (true (find :info spans :key #'third))
             (true (find :error spans :key #'third))
             (is = 4 (length buttons))))
         ;; the copies gone, the photos as they were
-        (is equal nil (ignore-errors (tuatara.io:directory-entries (namestring (merge-pathnames "facecomp/" (tuatara.io:cache-directory))))))
+        (is equal nil (ignore-errors (tuatara.io:directory-entries (namestring (merge-pathnames "sandbox-copies/" (tuatara.io:cache-directory))))))
         (is string= "not really a picture" (tuatara.io:file-text (third photos))))
       ;; why there is no report, in the photos' own names
       (let ((job (tuatara.defaults::make-facecomp-job nil (list (first photos)) (list (second photos)) nil))
@@ -103,7 +103,4 @@ printf '\"errors\":[\"/tmp/photos/photo-3.jpg: no face detected\"],\"arguments\"
         (let ((tuatara-user:*facecomp-backend* :arcface))
           (is equal '("--encoder-model" "/tmp/models/1/arcface.onnx") (tuatara.defaults::facecomp-models)))
         (let ((tuatara-user:*facecomp-backend* nil))
-          (is equal '("--encoder-model" "/tmp/models/1/sface.onnx") (tuatara.defaults::facecomp-models)))))
-    ;; a copy's name: its kind, its number and a plain ending, nothing else of the photo's name
-    (is string= "photo-3.jpg" (tuatara.defaults::facecomp-copy-name "photo" 3 "/x/My Photo*.JPG"))
-    (is string= "photo-1" (tuatara.defaults::facecomp-copy-name "photo" 1 "/x/name.a b"))))
+          (is equal '("--encoder-model" "/tmp/models/1/sface.onnx") (tuatara.defaults::facecomp-models)))))))

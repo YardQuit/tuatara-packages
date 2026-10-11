@@ -54,8 +54,9 @@ reading it, so facecomp runs shut in Tuatara's sandbox:
   a name;
 - it sees the model files you name and its own folder, read only, and nothing
   else of yours, with no network;
-- an AppImage of it runs unpacked in the sandbox's own `/tmp`, as the sandbox
-  has no FUSE;
+- its AppImage is unpacked once, outside the sandbox (it's your own program),
+  into Tuatara's cache, and run from there read only, so no run can change it
+  for the next;
 - it runs in the background and is stopped after `*facecomp-seconds*`.
 
 The copies are deleted when it is done; the photos are only read.

@@ -52,7 +52,7 @@ rimu's other keys work as in any list.
 
 ```
   ~/case/:
-  2 candidates ranked against 2 master photos (the least alike two 0.6123 alike, 99.0% one person): AuraFace-v1 ...
+  3 candidates ranked against 2 master photos (the least alike two 0.6123 alike, 99.0% one person): AuraFace-v1 ...
   master                                       masters/alice-1.jpg
   master                                       masters/alice-2.jpg
 
@@ -67,8 +67,8 @@ are in: beside each photo's name its probability, words and similarity
 (`99.0%  Almost certain  similarity 0.4447  2022-09-25 00.16.53.jpg`), the
 preview on the right, and the lines of the files that were not compared taken
 out, as `K` takes lines out (the files themselves are untouched), and the
-candidates' marks taken away, the masters' `M` kept. `C-c f r` again (or
-`g r`) shows the list as it was. The ranked list `*facematch*` is
+candidates' marks taken away, the masters' `M` kept. `C-c f r` again shows
+the list as it was. The ranked list `*facematch*` is
 `C-c f f`'s alone.
 
 Each candidate's words follow the ODNI's scale of estimative probability
@@ -106,7 +106,7 @@ How it held on LFW, scored on folds the curve never saw:
 | Said 95% and over: one person | 100% |
 
 AuraFace's makers report 99.65% on LFW with their own face detector; this
-engine finds faces with YuNet, whose licence is settled, and measures 98.8%.
+engine finds faces with YuNet, whose license is settled, and measures 98.8%.
 Probabilities are shown from 1% to 99%, the ends of the ODNI's scale: no
 calibration on 6000 pairs supports more certainty than that. In a photo of
 several people, a master's face is the largest; a candidate's is whichever of
@@ -170,4 +170,4 @@ through the real sandbox.
 ## License
 
 GPL-3.0-or-later; see `LICENSE` at the top of this repository. The models
-keep their own licences, carried in the AppImage.
+keep their own licenses, carried in the AppImage.

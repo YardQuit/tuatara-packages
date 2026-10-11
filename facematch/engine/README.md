@@ -4,7 +4,7 @@ A small program, `facematch.py`, that the facematch package drives: it finds
 the faces in master photos and candidate photos and says, for each candidate,
 how probable it is that it shows the same person.
 
-| Step | What does it | Licence |
+| Step | What does it | License |
 |---|---|---|
 | Find the faces and their five landmarks | YuNet 2023mar (OpenCV Zoo) | MIT |
 | Align each face | InsightFace's `norm_crop` | MIT (code) |
@@ -29,7 +29,7 @@ engine/build-appimage.sh
 makes `facematch/build/facematch-x86_64.AppImage` in an Ubuntu 24.04 podman
 container: a relocatable Python (python-build-standalone 3.12), numpy 1.26,
 ONNX Runtime, OpenCV and InsightFace 0.7.3 (its C parts compiled there against
-that numpy), the two models with their licences, `facematch.py` and
+that numpy), the two models with their licenses, `facematch.py` and
 `calibration.json`. It runs where glibc is 2.39 or later. Downloads are kept
 in `facematch/build/cache/`. The AppImage sets `NO_ALBUMENTATIONS_UPDATE=1`,
 so that a library InsightFace loads never looks for updates on the internet.

@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 # facematch/engine/calibrate.py --- Fit how a similarity becomes a probability, on LFW's labelled pairs.
 # Copyright (C) 2026 Michael A Jones.  GPL-3.0-or-later; see LICENSE.
-#
-# Runs facematch's own pipeline (YuNet, norm_crop, AuraFace) over LFW's
-# standard protocol, pairs.txt: ten folds of 300 pairs of one person and 300
-# of two. For each fold a logistic curve P(same | similarity) is fitted on the
-# other nine and scored on it (log loss, Brier score, accuracy at 50%), so the
-# report says how well the probabilities hold on photos the curve never saw;
-# then the curve fitted on all 6000 is written as calibration.json. The pairs
-# are half the same person, so the probabilities are at even odds.
-#
-# Usage: calibrate.py --lfw DIR --pairs pairs.txt --models DIR --out calibration.json
+
+"""Fit how a similarity becomes a probability, on LFW's labelled pairs.
+
+Runs facematch's own pipeline (YuNet, norm_crop, AuraFace) over LFW's
+standard protocol, pairs.txt: ten folds of 300 pairs of one person and 300
+of two. For each fold a logistic curve P(same | similarity) is fitted on the
+other nine and scored on it (log loss, Brier score, accuracy at 50%), so the
+report says how well the probabilities hold on photos the curve never saw;
+then the curve fitted on all 6000 is written as calibration.json. The pairs
+are half the same person, so the probabilities are at even odds.
+
+Usage: calibrate.py --lfw DIR --pairs pairs.txt --models DIR --out calibration.json
+"""
 
 import argparse
 import json
@@ -67,11 +70,14 @@ def scores(slope, intercept, x, y):
 
 
 def main():
-    parser = argparse.ArgumentParser(prog="calibrate.py")
+    """Fit the curve on the LFW pairs named on the command line, report how it
+    held on each fold, and write it as calibration.json."""
+    parser = argparse.ArgumentParser(prog="calibrate.py", description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--lfw", required=True, help="the folder of LFW's photos, one folder a person")
     parser.add_argument("--pairs", required=True, help="LFW's pairs.txt")
-    parser.add_argument("--models", required=True)
-    parser.add_argument("--out", required=True)
+    parser.add_argument("--models", required=True, help="the folder of the engine's models")
+    parser.add_argument("--out", required=True, help="where the fitted curve is written, calibration.json")
     args = parser.parse_args()
     faces = facematch.Faces(args.models, 0.7)
     folds = read_pairs(args.pairs)

@@ -4,10 +4,11 @@
 # all it needs in one file, nothing installed: a relocatable Python
 # (python-build-standalone), InsightFace with its dependencies, ONNX Runtime
 # and OpenCV, the models (YuNet from OpenCV Zoo, MIT; AuraFace-v1's
-# glintr100.onnx from fal, Apache 2.0) with their licences, and
+# glintr100.onnx from fal, Apache 2.0) with their licenses, and
 # calibration.json. Built in an Ubuntu 24.04 podman container, so that it
 # runs where glibc is 2.39 or later. What is downloaded is kept in
-# facematch/build/cache/ for the next build.
+# facematch/build/cache/ for the next build. appimagetool is Tuatara's own
+# when $TUATARA_SOURCE names its source tree, as tools/test.sh takes it.
 #
 # Usage: engine/build-appimage.sh            the AppImage (calibration.json must exist)
 #        engine/build-appimage.sh --env      only the container's Python with its
@@ -20,8 +21,9 @@ mkdir -p "$cache/models"
 container=facematch-build
 image=docker.io/library/ubuntu:24.04
 python_url="https://github.com/astral-sh/python-build-standalone/releases/download/20241016/cpython-3.12.7+20241016-x86_64-unknown-linux-gnu-install_only.tar.gz"
-appimagetool="$here/../../../tuatara/build/appimage-tools/appimagetool-x86_64.AppImage"
-[ -x "$appimagetool" ] || appimagetool="$cache/appimagetool-x86_64.AppImage"
+# Tuatara's own appimagetool when $TUATARA_SOURCE names its source tree, else downloaded
+appimagetool="${TUATARA_SOURCE:+$TUATARA_SOURCE/build/appimage-tools/appimagetool-x86_64.AppImage}"
+[ -n "$appimagetool" ] && [ -x "$appimagetool" ] || appimagetool="$cache/appimagetool-x86_64.AppImage"
 
 fetch() { [ -s "$2" ] || curl -sSfL -o "$2.part" "$1" && { [ -s "$2" ] || mv "$2.part" "$2"; }; }
 fetch "$python_url" "$cache/python.tar.gz"
