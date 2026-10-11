@@ -10,7 +10,7 @@
 
 (in-package #:tuatara.defaults)
 
-(defvar tuatara-user::*readpst-program* "readpst"
+(defvar tuatara-user::*outlook-readpst-program* "readpst"
   "The program that reads Outlook mailboxes (.pst, .ost) into separate
 messages, shut in the sandbox: readpst, of the libpst package, looked for in
 the system's own directories of programs. Set it in the init file after the
@@ -41,7 +41,7 @@ messages in your cache directory: 32 GB as standard. It is stopped there, as
 it is when the drive has less than 1 GB free, and what it wrote by then is
 listed.")
 
-(export '(tuatara-user::*readpst-program* tuatara-user::*outlook-include-deleted* tuatara-user::*outlook-largest-file*
+(export '(tuatara-user::*outlook-readpst-program* tuatara-user::*outlook-include-deleted* tuatara-user::*outlook-largest-file*
           tuatara-user::*outlook-nesting-limit* tuatara-user::*outlook-mailbox-seconds* tuatara-user::*outlook-mailbox-space*)
         :tuatara-user)
 

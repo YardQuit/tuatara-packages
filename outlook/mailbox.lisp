@@ -35,7 +35,7 @@ time or NIL; FROM and SUBJECT as written to be read; ATTACHMENTS, how many."
 
 (defun mailbox-readpst ()
   "The full path of readpst (*READPST-PROGRAM*) where the sandbox finds it, or NIL."
-  (tuatara.io:sandbox-find-program *readpst-program*))
+  (tuatara.io:sandbox-find-program *outlook-readpst-program*))
 
 (defun mailbox-preview-words (name size)
   "What the preview says of the mailbox NAME, of SIZE octets."
@@ -167,7 +167,7 @@ how it went (SANDBOX-RUN's second value) and what it said."
        (unwind-protect
             (setf result (handler-case
                              (multiple-value-list
-                              (tuatara.io:sandbox-run *readpst-program* arguments
+                              (tuatara.io:sandbox-run *outlook-readpst-program* arguments
                                                       :directories (list (cons copy "/tmp/mailbox.pst"))
                                                       :writable (list (cons (string-right-trim "/" folder) "/tmp/out"))
                                                       :seconds *outlook-mailbox-seconds* :memory (* 2 1024 1024 1024)
@@ -303,7 +303,7 @@ saying how to get them. Returns the buffer, or NIL for a file of another kind."
     (when (and native (eq :pst (nth-value 1 (file-kind native)))
                (file-view-can-draw-p native (mailbox-readpst)
                                      (format nil "readpst reads Outlook mailboxes, and is not installed (Fedora: sudo dnf install libpst; ~a)"
-                                             *readpst-program*)))
+                                             *outlook-readpst-program*)))
       (file-view-show native (remove-if-not #'live-buffer-p *mailboxes*) (lambda (b) (tuatara.buffer:buffer-local b 'mailbox-path))
                       (lambda () (mailbox-buffer native)) show))))
 

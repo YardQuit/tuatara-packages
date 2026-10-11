@@ -565,7 +565,7 @@ Returns the frontend and the editor."
     (let ((pst (write-test-octets (merge-pathnames "archive.pst" dir)
                                   (concatenate '(vector (unsigned-byte 8)) (sb-ext:string-to-octets "!BDN    SM" :external-format :latin-1)
                                                (make-array 600 :initial-element 0)))))
-      (let ((tuatara-user:*readpst-program* "no-such-readpst"))
+      (let ((tuatara-user:*outlook-readpst-program* "no-such-readpst"))
         ;; opened as any file, saying how to get readpst
         (multiple-value-bind (f editor) (outlook-session pst '())
           (true (tuatara.frontend.fake:fake-frame-showing f "libpst"))

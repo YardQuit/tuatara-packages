@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# tools/test.sh --- Run every package's tests.
 # Copyright (C) 2026 Michael A Jones.  GPL-3.0-or-later; see LICENSE.
 # Run every package's tests against a Tuatara source tree: $TUATARA_SOURCE,
 # else ../tuatara beside this repository. In Tuatara's toolbox when there is

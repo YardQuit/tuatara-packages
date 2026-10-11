@@ -288,6 +288,6 @@ size and how to read it; NIL for any other file."
 
 (defun outlook-health-words ()
   "What reads Outlook's files here, as \\[check-health] says it."
-  (let ((readpst (tuatara.io:sandbox-find-program *readpst-program*)))
+  (let ((readpst (tuatara.io:sandbox-find-program *outlook-readpst-program*)))
     (format nil "Outlook items (.msg) and saved mail (.eml) by Tuatara; mailboxes (.pst, .ost) by ~:[none: install readpst (Fedora: libpst)~;~:*~a, shut in~]"
             readpst)))

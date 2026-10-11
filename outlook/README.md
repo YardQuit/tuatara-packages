@@ -46,7 +46,7 @@ written to your cache folder. Install libpst from your system's packages
 
 | Setting | Standard | What it is |
 |---|---|---|
-| `*readpst-program*` | `"readpst"` | The program that reads mailboxes. |
+| `*outlook-readpst-program*` | `"readpst"` | The program that reads mailboxes. |
 | `*outlook-include-deleted*` | `t` | Lists the items a mailbox still holds that were deleted, in the folders they were deleted from; `nil` for only those not deleted. |
 | `*outlook-largest-file*` | 256 MB | The most an item or saved mail, or an attachment in one, may hold to be read as a message; a larger one opens as any file. |
 | `*outlook-nesting-limit*` | `8` | How many levels of messages attached to messages are shown as messages; deeper ones are listed as not read. |
