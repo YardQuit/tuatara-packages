@@ -15,6 +15,9 @@ everyone needs, and none is part of the editor.
   private copies, and the files are never changed.
 - =garamond= :: one space or two after a full stop, as the document itself
   says in its =Local Variables:= block: typed, filled and moved over that way.
+- =facecomp= :: faces in photos compared with a master photo's by the
+  facecomp program, shut in the sandbox on copies of the photos: a match,
+  a confidence label and the similarity for each.
 
 * Loading them
 
@@ -54,6 +57,9 @@ English, one way for each kind of thing.
 
 - garamond :: made from the Emacs package of the same name, by the same author
   (github.com/YardQuit/garamond).
+- facecomp :: drives the facecomp program and is made from its Emacs front
+  end, by the same author (github.com/yardquit/facecomp); its models are
+  OpenCV Zoo's (YuNet, SFace) and the ONNX Model Zoo's (ArcFace).
 - Microsoft's Open Specifications (MS-CFB, MS-OXMSG) :: how outlook reads an
   Outlook item; mailboxes are read by readpst, from libpst.
 - kitty, by Kovid Goyal :: the program the kitty package drives, by its remote
