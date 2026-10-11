@@ -1,0 +1,64 @@
+#+title: Tuatara packages
+
+Third-party packages for Tuatara, loaded on asking: each does one job that not
+everyone needs, and none is part of the editor.
+
+* The packages
+
+- =kitty= :: =M-x kitty= opens windows of a kitty that Tuatara starts itself,
+  =kitty-text= brings a window's text into a buffer with its colours, and
+  =kitty-input= types into one. =kitty/tuatara-kitty FILE...= runs the editor
+  itself in such a kitty.
+- =outlook= :: Outlook items (.msg), saved mail (.eml) and Outlook mailboxes
+  (.pst, .ost) opened as messages, read only, nothing in them run. Made for
+  examining mail from evidence: attachments are opened only on asking, from
+  private copies, and the files are never changed.
+- =garamond= :: one space or two after a full stop, as the document itself
+  says in its =Local Variables:= block: typed, filled and moved over that way.
+
+* Loading them
+
+Name this repository as a source once in =~/.config/tuatara/init.lisp=, then
+load each package by its name, its settings after =:config=:
+
+#+begin_example
+(package-source "yardquit" "https://github.com/yardquit/tuatara-packages")
+;; or a copy on your disk:
+;; (package-source "yardquit" "~/Projects/public/yardquit/tuatara-packages/")
+
+(load-package "outlook" :source "yardquit"
+  :config
+  (setf *outlook-include-deleted* nil))
+(load-package "garamond" :source "yardquit")
+#+end_example
+
+Tuatara asks before it first compiles and loads a package, its source offered
+to read. Each package's settings are in its help (=C-h v=) once it is loaded.
+
+* Working on them
+
+Each package is a folder: =NAME/NAME.lisp= is its entry, loading its other
+files with =load-package-file=, and =NAME/test.lisp= holds its tests.
+
+#+begin_example
+tools/test.sh      # every package's tests
+#+end_example
+
+The tests run against a Tuatara source tree, =../tuatara= beside this
+repository unless =TUATARA_SOURCE= names another, with Tuatara's own test
+helpers, and in its toolbox when there is one. The packages follow Tuatara's
+conventions (its =HACKING.org=): a docstring on every definition, New Zealand
+English, one way for each kind of thing.
+
+* Credits
+
+- garamond :: made from the Emacs package of the same name, by the same author
+  (github.com/YardQuit/garamond).
+- Microsoft's Open Specifications (MS-CFB, MS-OXMSG) :: how outlook reads an
+  Outlook item; mailboxes are read by readpst, from libpst.
+- kitty, by Kovid Goyal :: the program the kitty package drives, by its remote
+  control.
+
+* License
+
+GPL-3.0-or-later; see LICENSE.

@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# packages/kitty/tuatara-kitty --- Start a kitty of Tuatara's own.
+# Copyright (C) 2026 Michael A Jones.  GPL-3.0-or-later; see LICENSE.
+#
+# tuatara-kitty [--program KITTY] [--hidden] [FILE...]
+#     Tuatara in a kitty of its own, editing the FILEs: kitty's drawing,
+#     ligatures and pictures, and M-x kitty there opening windows beside the
+#     editor's. Returns at once.
+# tuatara-kitty [--program KITTY] [--hidden] --shell DIRECTORY SOCKET
+#     Your shell in a kitty of Tuatara's own in DIRECTORY, listening on SOCKET
+#     (unix:PATH): what M-x kitty starts. --hidden starts it unseen (the tests).
+#
+# Its looks are your kitty.conf, then ~/.config/tuatara/kitty.conf over it,
+# made the first time with examples only. Remote control is allowed over its
+# own socket alone (allow_remote_control socket-only, given on the command
+# line, which no configuration file can undo), so a program run in it, or a
+# file shown in it, cannot steer it. The editor run is $TUATARA, else the
+# repository's tools/tuatara-tui.sh, else tuatara on the PATH.
+set -euo pipefail
+
+program=kitty hidden=() shell=
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --program) program=$2; shift 2 ;;
+    --hidden) hidden=(--start-as=hidden); shift ;;
+    --shell) shell=1 directory=$2 socket=$3; shift 3 ;;
+    --) shift; break ;;
+    *) break ;;
+  esac
+done
+
+config=${XDG_CONFIG_HOME:-$HOME/.config}
+own=$config/tuatara/kitty.conf
+if [ ! -e "$own" ]; then
+  mkdir -p "$config/tuatara"
+  cat > "$own" <<'CONF'
+# kitty settings for the windows Tuatara opens (M-x kitty), over your own
+# ~/.config/kitty/kitty.conf; any kitty setting, for those windows only.
+# Remote control is set by Tuatara on kitty's command line, over its own socket
+# only, and cannot be changed here.
+
+# font_size 12
+# background_opacity 0.95
+# remember_window_size no
+# initial_window_width 100c
+CONF
+fi
+
+configs=()
+[ -e "$config/kitty/kitty.conf" ] && configs+=(--config "$config/kitty/kitty.conf")
+configs+=(--config "$own" -o allow_remote_control=socket-only)
+
+if [ -n "$shell" ]; then
+  exec "$program" "${hidden[@]}" "${configs[@]}" --listen-on "$socket" --directory "$directory"
+fi
+
+here=$(cd "$(dirname "$0")" && pwd)
+editor=${TUATARA:-}
+if [ -z "$editor" ]; then
+  if [ -x "$here/../../tools/tuatara-tui.sh" ]; then editor=$here/../../tools/tuatara-tui.sh; else editor=tuatara; fi
+fi
+socket=unix:${XDG_RUNTIME_DIR:-/tmp}/tuatara-kitty-$(od -An -N8 -tx8 /dev/urandom | tr -d ' \n')
+exec "$program" --detach "${hidden[@]}" "${configs[@]}" --listen-on "$socket" --directory "$PWD" "$editor" -- "$@"

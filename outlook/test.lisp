@@ -1,0 +1,632 @@
+;;;; outlook/test.lisp --- The outlook package: Outlook items, saved mail and mailboxes read safely.
+;;;; Copyright (C) 2026 Michael A Jones.  GPL-3.0-or-later; see LICENSE.
+
+(in-package #:tuatara.tests)
+
+(define-test outlook
+  :description "The outlook package: compound files read with every chain checked (loops, streams larger than
+their chains, items nested deep or in a circle refused or cut short, never hanging); Outlook items read as
+messages (sender, recipients, dates, plain, HTML and compressed RTF bodies, internet headers, attachments, an
+attached item as a message, what the item says of itself); internet mail (encoded words, quoted-printable,
+base64, parts within parts, a boundary that never comes); attachments opened from private copies, the
+original untouched; mailboxes listed from what readpst writes, and refused with how to get readpst without
+it; previews, health and load-package.")
+
+;;; A compound file written, for the tests
+
+(defstruct (cfbw-entry (:copier nil))
+  "An entry of a compound file being written for the tests."
+  name type octets child right (start #xFFFFFFFE) (size 0))
+
+(defun cfb-test-octets (tree)
+  "The octets of a compound file (sectors of 512 octets) holding TREE: a
+storage (:storage NAME CHILD...) or a stream (:stream NAME OCTETS), the
+first the root. Streams below 4,096 octets go in the mini stream."
+  (let ((entries (make-array 0 :adjustable t :fill-pointer 0))
+        (mini (make-array 0 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0))
+        (mini-fat '()) (big '()))
+    (labels ((add (node)
+               (let* ((entry (make-cfbw-entry :name (second node) :type (if (eq (first node) :stream) 2 1)))
+                      (index (vector-push-extend entry entries)))
+                 (if (eq (first node) :stream)
+                     (let ((octets (coerce (third node) '(vector (unsigned-byte 8)))))
+                       (setf (cfbw-entry-octets entry) octets (cfbw-entry-size entry) (length octets)))
+                     (let ((children (mapcar #'add (cddr node))))
+                       (setf (cfbw-entry-child entry) (first children))
+                       (loop for (a b) on children while b do (setf (cfbw-entry-right (aref entries a)) b))))
+                 index)))
+      (add tree)
+      (setf (cfbw-entry-type (aref entries 0)) 5))
+    ;; the small streams into the mini stream, the others in sectors of their own
+    (loop for entry across entries
+          for size = (cfbw-entry-size entry)
+          when (and (= 2 (cfbw-entry-type entry)) (plusp size) (< size 4096))
+            do (let ((first (floor (length mini) 64)) (count (ceiling size 64)))
+                 (setf (cfbw-entry-start entry) first)
+                 (loop for k below count do (push (if (< k (1- count)) (+ first k 1) #xFFFFFFFE) mini-fat))
+                 (loop for o across (cfbw-entry-octets entry) do (vector-push-extend o mini))
+                 (loop repeat (- (* 64 count) size) do (vector-push-extend 0 mini)))
+          when (and (= 2 (cfbw-entry-type entry)) (>= size 4096))
+            do (push entry big))
+    (setf mini-fat (coerce (nreverse mini-fat) 'vector) big (nreverse big))
+    (let* ((dir-count (ceiling (length entries) 4))
+           (mini-fat-count (ceiling (length mini-fat) 128))
+           (mini-count (ceiling (length mini) 512))
+           (big-count (reduce #'+ big :key (lambda (e) (ceiling (cfbw-entry-size e) 512))))
+           (others (+ dir-count mini-fat-count mini-count big-count))
+           (fat-count (loop for f from 1 when (>= (* f 128) (+ others f)) return f))
+           (total (+ fat-count others))
+           (out (make-array (* 512 (1+ total)) :element-type '(unsigned-byte 8) :initial-element 0))
+           (fat (make-array (* fat-count 128) :initial-element #xFFFFFFFF))
+           (next fat-count))
+      (labels ((put (at value count) (tuatara.io:octets-put-integer out value count :at at))
+               (run (count) (let ((start next))
+                              (dotimes (k count) (setf (aref fat (+ start k)) (if (< k (1- count)) (+ start k 1) #xFFFFFFFE)))
+                              (incf next count)
+                              (if (plusp count) start #xFFFFFFFE)))
+               (sector (n) (* 512 (1+ n))))
+        (dotimes (k fat-count) (setf (aref fat k) #xFFFFFFFD))
+        (let* ((dir-start (run dir-count))
+               (mini-fat-start (run mini-fat-count))
+               (mini-start (run mini-count)))
+          (dolist (entry big) (setf (cfbw-entry-start entry) (run (ceiling (cfbw-entry-size entry) 512))))
+          (setf (cfbw-entry-start (aref entries 0)) (if (plusp (length mini)) mini-start #xFFFFFFFE)
+                (cfbw-entry-size (aref entries 0)) (length mini))
+          ;; the header
+          (replace out #(#xD0 #xCF #x11 #xE0 #xA1 #xB1 #x1A #xE1))
+          (put 24 #x3E 2) (put 26 3 2) (put 28 #xFFFE 2) (put 30 9 2) (put 32 6 2)
+          (put 44 fat-count 4) (put 48 dir-start 4) (put 56 4096 4)
+          (put 60 (if (plusp mini-fat-count) mini-fat-start #xFFFFFFFE) 4) (put 64 mini-fat-count 4)
+          (put 68 #xFFFFFFFE 4) (put 72 0 4)
+          (dotimes (k 109) (put (+ 76 (* 4 k)) (if (< k fat-count) k #xFFFFFFFF) 4))
+          ;; the FAT, the directory, the mini FAT, the mini stream, the large streams
+          (loop for value across fat for k from 0 do (put (+ (sector 0) (* 4 k)) value 4))
+          (loop for entry across entries
+                for at from (sector dir-start) by 128
+                do (let ((name (sb-ext:string-to-octets (cfbw-entry-name entry) :external-format :utf-16le)))
+                     (replace out name :start1 at)
+                     (put (+ at 64) (+ 2 (length name)) 2)
+                     (put (+ at 66) (cfbw-entry-type entry) 1)
+                     (put (+ at 67) 1 1)
+                     (put (+ at 68) #xFFFFFFFF 4)
+                     (put (+ at 72) (or (cfbw-entry-right entry) #xFFFFFFFF) 4)
+                     (put (+ at 76) (or (cfbw-entry-child entry) #xFFFFFFFF) 4)
+                     (put (+ at 116) (cfbw-entry-start entry) 4)
+                     (put (+ at 120) (cfbw-entry-size entry) 8)))
+          ;; unused entries of the last directory sector: no links
+          (loop for k from (length entries) below (* 4 dir-count)
+                do (let ((at (+ (sector dir-start) (* 128 k)))) (put (+ at 68) #xFFFFFFFF 4) (put (+ at 72) #xFFFFFFFF 4) (put (+ at 76) #xFFFFFFFF 4)))
+          (loop for value across mini-fat for k from 0 do (put (+ (sector mini-fat-start) (* 4 k)) value 4))
+          (replace out mini :start1 (sector mini-start))
+          (dolist (entry big) (replace out (cfbw-entry-octets entry) :start1 (sector (cfbw-entry-start entry))))))
+      out)))
+
+;;; An Outlook item written, for the tests
+
+(defun utf-16-octets (text)
+  "TEXT as UTF-16, least significant octet first."
+  (sb-ext:string-to-octets text :external-format :utf-16le))
+
+(defun msg-test-storage (name properties &key (header 32) children)
+  "A storage called NAME (:storage ...) for CFB-TEST-OCTETS laid out as an
+Outlook item's: PROPERTIES, each (ID TYPE VALUE), TYPE #x001F a string,
+#x0102 octets, #x0003 a number, #x000B a boolean, #x0040 a universal time,
+#x000D a list of the nodes of a storage within; HEADER octets before the
+fixed-size properties; CHILDREN, more nodes in it."
+  (let ((fixed (make-array 0 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0))
+        (streams '()))
+    (dotimes (k header) (vector-push-extend 0 fixed))
+    (flet ((entry (id type value)
+             (let ((octets (make-array 16 :element-type '(unsigned-byte 8) :initial-element 0)))
+               (tuatara.io:octets-put-integer octets (logior type (ash id 16)) 4 :at 0)
+               (setf (aref octets 4) 6)
+               (tuatara.io:octets-put-integer octets value 8 :at 8)
+               (loop for o across octets do (vector-push-extend o fixed)))))
+      (loop for (id type value) in properties
+            for stream-name = (format nil "__substg1.0_~4,'0X~4,'0X" id type)
+            do (ecase type
+                 (#x001F (let ((octets (concatenate '(vector (unsigned-byte 8)) (utf-16-octets value) #(0 0))))
+                           (push (list :stream stream-name octets) streams)
+                           (entry id type (length octets))))
+                 (#x0102 (push (list :stream stream-name value) streams) (entry id type (length value)))
+                 (#x0003 (entry id type (ldb (byte 32 0) value)))
+                 (#x000B (entry id type (if value 1 0)))
+                 (#x0040 (entry id type (* (+ value 9435484800) 10000000)))
+                 (#x000D (push (list* :storage stream-name value) streams) (entry id type #xFFFFFFFF)))))
+    (list* :storage name (list :stream "__properties_version1.0" (coerce fixed '(vector (unsigned-byte 8))))
+           (append (nreverse streams) children))))
+
+(defparameter *png-test-octets*
+  (coerce '(#x89 #x50 #x4E #x47 #x0D #x0A #x1A #x0A #x00 #x00 #x00 #x0D #x49 #x48 #x44 #x52 #x00 #x00 #x00 #x01
+            #x00 #x00 #x00 #x01 #x08 #x06 #x00 #x00 #x00 #x1F #x15 #xC4 #x89 #x00 #x00 #x00 #x0A #x49 #x44 #x41
+            #x54 #x78 #x9C #x63 #x00 #x01 #x00 #x00 #x05 #x00 #x01 #x0D #x0A #x2D #xB4 #x00 #x00 #x00 #x00 #x49
+            #x45 #x4E #x44 #xAE #x42 #x60 #x82)
+          '(vector (unsigned-byte 8)))
+  "A picture of one pixel, as a PNG.")
+
+(defparameter *msg-test-sent* (encode-universal-time 0 15 20 6 10 2026 0)
+  "When the test item was sent: 2026-10-06 20:15 UTC.")
+
+(defun lzfu-test-octets (tokens)
+  "Compressed RTF (LZFu) made of TOKENS, each an octet written as it is or
+(OFFSET LENGTH), a reference into the dictionary; its end marked."
+  (let ((body (make-array 0 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0))
+        (write (length tuatara.defaults::*lzfu-dictionary*))
+        (raw 0)
+        (tokens (append tokens (list :end))))
+    (loop while tokens
+          do (let ((control 0) (group '()))
+               (dotimes (bit 8)
+                 (let ((token (pop tokens)))
+                   (when (null token) (return))
+                   (cond ((eq token :end) (setf control (logior control (ash 1 bit))) (push (list (ash write 4)) group))
+                         ((consp token)
+                          (setf control (logior control (ash 1 bit)))
+                          (push (list (logior (ash (first token) 4) (- (second token) 2))) group)
+                          (incf write (second token)) (incf raw (second token)))
+                         (t (push token group) (incf write) (incf raw)))
+                   (setf write (logand write 4095))))
+               (vector-push-extend control body)
+               (dolist (item (nreverse group))
+                 (if (consp item)
+                     (tuatara.io:octets-put-integer body (first item) 2 :big-endian t)
+                     (vector-push-extend item body)))))
+    (let ((out (make-array (+ 16 (length body)) :element-type '(unsigned-byte 8) :initial-element 0)))
+      (flet ((put (at value) (tuatara.io:octets-put-integer out value 4 :at at)))
+        (put 0 (+ 12 (length body))) (put 4 raw) (put 8 #x75465A4C))
+      (replace out body :start1 16)
+      out)))
+
+(defun rtf-test-tokens (text)
+  "TEXT's octets as LZFu tokens written as they are."
+  (coerce (sb-ext:string-to-octets text :external-format :latin-1) 'list))
+
+(defun msg-test-octets (&key (body :plain) (inner-depth 1))
+  "An Outlook item for the tests: sent by Kea Counter, to two, copied to one,
+blind copied to one; its BODY plain text, HTML alone (:html) or compressed
+RTF alone (:rtf); its internet headers; two attachments, a PNG and an
+attached item nested INNER-DEPTH deep."
+  (labels ((inner (depth)
+             (msg-test-storage "__substg1.0_3701000D"
+                               `((#x0037 #x001F ,(format nil "Inner subject ~d" depth))
+                                 (#x001A #x001F "IPM.Note")
+                                 (#x1000 #x001F ,(format nil "Inner body ~d" depth)))
+                               :header 24
+                               :children (when (< depth inner-depth)
+                                           (list (msg-test-storage "__attach_version1.0_#00000000"
+                                                                   '((#x3705 #x0003 5))
+                                                                   :header 8 :children (list (inner (1+ depth)))))))))
+    (cfb-test-octets
+     (msg-test-storage
+      "Root Entry"
+      (append
+       `((#x0037 #x001F "Kea survey results")
+         (#x001A #x001F "IPM.Note")
+         (#x0E07 #x0003 9)
+         (#x0039 #x0040 ,*msg-test-sent*)
+         (#x0E06 #x0040 ,(+ *msg-test-sent* 60))
+         (#x0C1A #x001F "Kea Counter")
+         (#x0C1F #x001F "/O=EXAMPLE/OU=FIRST/CN=RECIPIENTS/CN=KEA")
+         (#x0C1E #x001F "EX")
+         (#x5D01 #x001F "kea@example.org")
+         (#x1035 #x001F "<survey-1@example.org>")
+         (#x007D #x001F ,(format nil "Received: from mail.example.org by mx.example.net; Tue, 6 Oct 2026 20:15:30 +0000~c~cX-Origin: tested~c~c"
+                                 #\Return #\Newline #\Return #\Newline)))
+       (ecase body
+         (:plain '((#x1000 #x001F "Twelve kea counted at dawn.")))
+         (:html `((#x1013 #x0102 ,(sb-ext:string-to-octets "<html><head><meta charset='utf-8'><style>p{}</style><script>alert(1)</script></head><body><p>Kea &amp; kaka seen</p><p><a href='https://example.org/count'>the count</a></p><img src='https://example.org/track.png' alt='tracker'></body></html>" :external-format :utf-8))))
+         (:rtf `((#x1009 #x0102 ,(lzfu-test-octets (append (list '(0 11)) (rtf-test-tokens "\\ansicpg1252 {\\fonttbl{\\f0 Arial;}}Kea \\'e9t\\'e9\\par \\u8364?done}"))))))))
+      :children
+      (list (msg-test-storage "__recip_version1.0_#00000000" '((#x3001 #x001F "Ruru Watcher") (#x39FE #x001F "ruru@example.org") (#x0C15 #x0003 1)) :header 8)
+            (msg-test-storage "__recip_version1.0_#00000001" '((#x3001 #x001F "Tui Singer") (#x39FE #x001F "tui@example.org") (#x0C15 #x0003 1)) :header 8)
+            (msg-test-storage "__recip_version1.0_#00000002" '((#x3001 #x001F "Weka Walker") (#x39FE #x001F "weka@example.org") (#x0C15 #x0003 2)) :header 8)
+            (msg-test-storage "__recip_version1.0_#00000003" '((#x3001 #x001F "Hidden Hoiho") (#x39FE #x001F "hoiho@example.org") (#x0C15 #x0003 3)) :header 8)
+            (msg-test-storage "__attach_version1.0_#00000000" `((#x3707 #x001F "kea.png") (#x3705 #x0003 1) (#x3701 #x0102 ,*png-test-octets*)) :header 8)
+            (msg-test-storage "__attach_version1.0_#00000001" '((#x3705 #x0003 5)) :header 8 :children (list (inner 1))))))))
+
+(defun write-test-octets (path octets)
+  "Write OCTETS as the file at PATH; return PATH as a native string."
+  (with-open-file (out path :direction :output :element-type '(unsigned-byte 8) :if-exists :supersede)
+    (write-sequence octets out))
+  (namestring path))
+
+(defun mail-test-text (mail)
+  "MAIL as its buffer shows it."
+  (values (tuatara.defaults::pieces-text (tuatara.defaults::mail-pieces mail))))
+
+(defun has (text part)
+  "Check that TEXT holds PART."
+  (true (search part text) "~s in~%~a" part text))
+
+;;; Compound files
+
+(define-test (outlook item-read)
+  (let* ((mail (tuatara.defaults::msg-read (msg-test-octets)))
+         (text (mail-test-text mail)))
+    (is string= "Kea survey results" (tuatara.defaults::mail-subject mail))
+    (is string= "Kea Counter <kea@example.org>" (tuatara.defaults::mail-from mail))
+    (is string= "Ruru Watcher <ruru@example.org>, Tui Singer <tui@example.org>" (tuatara.defaults::mail-to mail))
+    (is string= "Weka Walker <weka@example.org>" (tuatara.defaults::mail-cc mail))
+    (is string= "Hidden Hoiho <hoiho@example.org>" (tuatara.defaults::mail-bcc mail))
+    (is = *msg-test-sent* (tuatara.defaults::mail-sent mail))
+    (is = (+ 60 *msg-test-sent*) (tuatara.defaults::mail-received mail))
+    (is eq :plain (tuatara.defaults::mail-body-kind mail))
+    (has text "Twelve kea counted at dawn.")
+    (has text "Message-ID  <survey-1@example.org>")
+    (has text "2026-10-06 20:15:00 UTC")
+    ;; what an examiner looks for: the item's class, its flags, the sender as the item has it
+    (has text "Item: IPM.Note")
+    (has text "Flags: read, unsent (a draft)")
+    (has text "Sender as the item says: Kea Counter </O=EXAMPLE/OU=FIRST/CN=RECIPIENTS/CN=KEA>")
+    (has text "Sender address type: EX")
+    (has text "Bodies it holds: plain text")
+    (has text "Internet headers")
+    (has text "Received: from mail.example.org")
+    ;; its attachments: a picture by its contents, and an item attached, read as a message
+    (has text "Attachments: 2")
+    (has text "kea.png  67 B, PNG image, 1 × 1, 8-bit RGBA")
+    (has text "Inner subject 1  a message")
+    (let ((inner (tuatara.defaults::mail-attachment-message (second (tuatara.defaults::mail-attachments mail)))))
+      (true inner)
+      (is string= "Inner body 1" (tuatara.defaults::mail-body inner)))
+    ;; the brief text a preview shows
+    (let ((brief (tuatara.defaults::mail-brief-text mail)))
+      (has brief "Kea survey results")
+      (false (search "Internet headers" brief)))))
+
+(define-test (outlook item-bodies)
+  ;; HTML alone: read as text, nothing fetched, the script left out, the link's address said
+  (let* ((mail (tuatara.defaults::msg-read (msg-test-octets :body :html)))
+         (body (tuatara.defaults::mail-body mail)))
+    (is eq :html (tuatara.defaults::mail-body-kind mail))
+    (has body "Kea & kaka seen")
+    (has body "the count <https://example.org/count>")
+    (has body "[picture: tracker; from https://example.org/track.png, not fetched]")
+    (false (search "alert" body))
+    (has (mail-test-text mail) "Text (HTML read as text)"))
+  ;; compressed RTF alone: taken out, a reference into the dictionary followed, its text read
+  (is = 207 (length tuatara.defaults::*lzfu-dictionary*))
+  (let* ((mail (tuatara.defaults::msg-read (msg-test-octets :body :rtf)))
+         (body (tuatara.defaults::mail-body mail)))
+    (is eq :rtf (tuatara.defaults::mail-body-kind mail))
+    (is string= (format nil "Kea été~%€done") body))
+  (is string= "{\\rtf1\\ansi" (tuatara.text:octets-latin-1 (tuatara.defaults::lzfu-decompress (lzfu-test-octets (list '(0 11)))))))
+
+(define-test (outlook crafted-compound-files)
+  (let* ((good (msg-test-octets))
+         (dir (tuatara.io:octets-le good 48 4))
+         (fat (* 512 (1+ (tuatara.io:octets-le good 76 4)))))
+    (flet ((refused (octets words)
+             (let ((start (get-internal-real-time)))
+               (fail (tuatara.defaults::msg-read octets))
+               (let ((said (handler-case (progn (tuatara.defaults::msg-read octets) nil) (error (e) (princ-to-string e)))))
+                 (true (and said (search words said)) "~s said ~s" words said))
+               (true (< (- (get-internal-real-time) start) (* 2 internal-time-units-per-second))))))
+      ;; a FAT whose chain comes back on itself
+      (let ((loop (copy-seq good)))
+        (tuatara.io:octets-put-integer loop dir 4 :at (+ fat (* 4 dir)))
+        (refused loop "loops"))
+      ;; a stream saying it holds more than its chain does: the subject's
+      (let* ((cfb (tuatara.defaults::cfb-read good))
+             (subject (find "__substg1.0_0037001F" (tuatara.defaults::cfb-entries cfb)
+                            :key (lambda (e) (and e (tuatara.defaults::cfb-entry-name e))) :test #'equal))
+             (big (copy-seq good))
+             (at (+ (* 512 (1+ dir)) (* 128 (tuatara.defaults::cfb-entry-index subject)) 120)))
+        (tuatara.io:octets-put-integer big 4000 4 :at at)
+        (refused big "more than its"))
+      ;; not a compound file, and one cut short
+      (refused (make-array 600 :element-type '(unsigned-byte 8) :initial-element 0) "Not a compound file")
+      (refused (subseq good 0 1024) "compound file")))
+  ;; items attached within items, deeper than *outlook-nesting-limit*: read to it, the rest listed as not read
+  (let* ((mail (tuatara.defaults::msg-read (msg-test-octets :inner-depth 20)))
+         (deepest mail))
+    (loop for attachment = (car (last (tuatara.defaults::mail-attachments deepest)))
+          while (and attachment (tuatara.defaults::mail-attachment-message attachment))
+          do (setf deepest (tuatara.defaults::mail-attachment-message attachment)))
+    (has (tuatara.defaults::mail-attachment-why (car (last (tuatara.defaults::mail-attachments deepest)))) "nested too deep"))
+  ;; an attached item made to hold the item it is in: read once, never round and round
+  (let* ((good (msg-test-octets))
+         (cfb (tuatara.defaults::cfb-read good))
+         (entries (tuatara.defaults::cfb-entries cfb))
+         (inner (find "__substg1.0_3701000D" entries :key (lambda (e) (and e (tuatara.defaults::cfb-entry-name e))) :test #'equal))
+         (circle (copy-seq good))
+         (at (+ (* 512 (1+ (tuatara.io:octets-le good 48 4))) (* 128 (tuatara.defaults::cfb-entry-index inner)) 76))
+         (start (get-internal-real-time)))
+    (tuatara.io:octets-put-integer circle (tuatara.defaults::cfb-entry-child (aref entries 0)) 4 :at at)
+    (let ((mail (tuatara.defaults::msg-read circle)))
+      (is string= "Kea survey results" (tuatara.defaults::mail-subject mail)))
+    (true (< (- (get-internal-real-time) start) (* 5 internal-time-units-per-second)))))
+
+;;; Internet mail
+
+(defparameter *eml-test-text*
+  (format nil "From: =?UTF-8?B?S8SBcmVhIEJpcmQ=?= <karearea@example.org>~@
+To: Ruru <ruru@example.org>~@
+Subject: =?iso-8859-1?Q?Caf=E9?= =?UTF-8?Q?_survey?=~@
+Date: Tue, 6 Oct 2026 20:15:00 +1300~@
+Message-ID: <eml-1@example.org>~@
+Received: from a.example.org by b.example.org; Tue, 6 Oct 2026 07:16:00 -0000~@
+X-Mailer: Feather 1.0~@
+MIME-Version: 1.0~@
+Content-Type: multipart/mixed; boundary=\"outer\"~@
+~@
+Preamble, not shown.~@
+--outer~@
+Content-Type: multipart/alternative; boundary=\"inner\"~@
+~@
+--inner~@
+Content-Type: text/plain; charset=utf-8~@
+Content-Transfer-Encoding: quoted-printable~@
+~@
+Caf=C3=A9 count: twelve =~@
+kea.~@
+--inner~@
+Content-Type: text/html; charset=utf-8~@
+Content-Transfer-Encoding: base64~@
+~@
+PHA+Q2Fmw6k8L3A+~@
+--inner--~@
+--outer~@
+Content-Type: image/png~@
+Content-Disposition: attachment; filename*=utf-8''r%C3%A9sum%C3%A9.png~@
+Content-Transfer-Encoding: base64~@
+~@
+~a~@
+--outer~@
+Content-Type: message/rfc822~@
+~@
+From: Inner <inner@example.org>~@
+Subject: Forwarded count~@
+~@
+Inner text.~@
+--outer--~@
+Epilogue.~%"
+          (let ((o (coerce *png-test-octets* '(simple-array (unsigned-byte 8) (*)))))
+            ;; in lines of 60, as mail writes it
+            (let ((all (tuatara.frontend.tui::base64-string o 0 (length o))))
+              (format nil "~{~a~^~%~}" (loop for at from 0 below (length all) by 60 collect (subseq all at (min (length all) (+ at 60))))))))
+  "A saved mail for the tests: encoded words, quoted-printable, base64, parts within parts, an attached picture and message.")
+
+(define-test (outlook internet-mail)
+  (let* ((mail (tuatara.defaults::eml-read (sb-ext:string-to-octets *eml-test-text* :external-format :utf-8)))
+         (text (mail-test-text mail)))
+    (is string= "Kārea Bird <karearea@example.org>" (tuatara.defaults::mail-from mail))
+    (is string= "Café survey" (tuatara.defaults::mail-subject mail))
+    (is = (encode-universal-time 0 15 7 6 10 2026 0) (tuatara.defaults::mail-sent mail))
+    (is = (encode-universal-time 0 16 7 6 10 2026 0) (tuatara.defaults::mail-received mail))
+    (is eq :plain (tuatara.defaults::mail-body-kind mail))
+    (is string= (format nil "Café count: twelve kea.") (string-right-trim '(#\Newline) (tuatara.defaults::mail-body mail)))
+    (has text "X-Mailer: Feather 1.0")
+    (has text "Content-Type: multipart/mixed")
+    (false (search "Preamble" (tuatara.defaults::mail-body mail)))
+    (let ((attachments (tuatara.defaults::mail-attachments mail)))
+      (is = 2 (length attachments))
+      (is string= "résumé.png" (tuatara.defaults::mail-attachment-name (first attachments)))
+      (is equalp *png-test-octets* (tuatara.defaults::mail-attachment-octets (first attachments)))
+      (is string= "Forwarded count" (tuatara.defaults::mail-attachment-name (second attachments)))
+      (is string= "Inner text." (string-right-trim '(#\Newline) (tuatara.defaults::mail-body (tuatara.defaults::mail-attachment-message (second attachments)))))))
+  ;; quoted-printable and base64 on their own
+  (is string= "a=b é" (tuatara.defaults::mail-decode (tuatara.defaults::mime-quoted-printable-octets (sb-ext:string-to-octets (format nil "a=3Db =~%=C3=A9") :external-format :latin-1)) "utf-8"))
+  (is string= "Man" (tuatara.text:octets-latin-1 (tuatara.io:base64-octets (sb-ext:string-to-octets (format nil "TW~%Fu") :external-format :latin-1))))
+  (is string= "Ma" (tuatara.text:octets-latin-1 (tuatara.io:base64-octets (sb-ext:string-to-octets "TWE=" :external-format :latin-1))))
+  ;; a boundary that never comes: the body is the rest, and the message says so
+  (let ((mail (tuatara.defaults::eml-read (sb-ext:string-to-octets (format nil "Subject: broken~%Content-Type: multipart/mixed; boundary=\"gone\"~%~%Only text.~%") :external-format :utf-8))))
+    (is string= "broken" (tuatara.defaults::mail-subject mail))
+    (true (some (lambda (note) (search "boundary" note)) (tuatara.defaults::mail-notes mail))))
+  ;; a closing line that never comes: the last part runs to the end
+  (let ((mail (tuatara.defaults::eml-read (sb-ext:string-to-octets (format nil "Content-Type: multipart/mixed; boundary=b~%~%--b~%Content-Type: text/plain~%~%cut short~%") :external-format :utf-8))))
+    (has (tuatara.defaults::mail-body mail) "cut short"))
+  ;; a date of every kind, or none
+  (is = (encode-universal-time 0 0 12 1 1 2026 0) (tuatara.defaults::mail-date-time "1 Jan 26 12:00 GMT"))
+  (false (tuatara.defaults::mail-date-time "yesterday"))
+  ;; headers in charsets of their own, and an unknown one read as the editor reads files
+  (is string= "€" (tuatara.defaults::mime-decode-words "=?windows-1252?Q?=80?="))
+  (is string= "plain" (tuatara.defaults::mime-decode-words "plain")))
+
+;;; Seen and opened in the editor
+
+(defun outlook-busy-p ()
+  "True while a message or a mailbox is being read."
+  (some (lambda (job) (or (tuatara.defaults::mail-read-job-p job) (tuatara.defaults::mailbox-job-p job))) tuatara.runtime:*jobs*))
+
+(defun outlook-session (path steps &key (width 120) (height 40))
+  "Visit PATH with C-x C-f in an editor session, then do each of STEPS (keys,
+or a function called there) once what is read in the background is done.
+Returns the frontend and the editor."
+  (let ((f (tuatara.frontend.fake:make-fake-frontend :width width :height height))
+        (start (get-internal-real-time)))
+    (let ((scratch (tuatara.buffer:find-buffer "*scratch*")))
+      (when scratch (tuatara.buffer:kill-buffer scratch)))
+    (tuatara.buffer:make-buffer "*scratch*" :text "")
+    (tuatara.frontend.fake:fake-queue-keys f (format nil "C-x C-f C-a C-k ~a RET" (rimu-typed path)))
+    (labels ((check ()
+               (if (and (outlook-busy-p) (< (- (get-internal-real-time) start) (* 30 internal-time-units-per-second)))
+                   (progn (sleep 0.02) (tuatara.frontend.fake:fake-queue-action f #'check))
+                   (when steps
+                     (let ((step (pop steps)))
+                       (if (functionp step)
+                           (tuatara.frontend.fake:fake-queue-action f step)
+                           (tuatara.frontend.fake:fake-queue-keys f step)))
+                     (tuatara.frontend.fake:fake-queue-action f #'check)))))
+      (tuatara.frontend.fake:fake-queue-action f #'check))
+    (values f (tuatara.command:run-editor f :setup #'tuatara.defaults:install-defaults
+                                            :buffer (tuatara.buffer:find-buffer "*scratch*")))))
+
+(defun to-attachment (n)
+  "A step for OUTLOOK-SESSION: point to the Nth attachment's button of the message shown."
+  (lambda ()
+    (let ((place (nth n (tuatara.buffer:buffer-local (tuatara.command:current-buffer) 'tuatara.defaults::mail-attachment-places))))
+      (when place (setf (tuatara.buffer:buffer-point (tuatara.command:current-buffer)) (first place))))))
+
+(define-test (outlook item-opened-attachments-safely)
+  (with-test-directory (dir)
+    (let* ((path (write-test-octets (merge-pathnames "survey.msg" dir) (msg-test-octets)))
+           (before (tuatara.io:file-octets path))
+           (stamp (tuatara.io:path-stamp path)))
+      ;; visited: a message, read only
+      (multiple-value-bind (f editor) (outlook-session path '())
+        (declare (ignore f))
+        (let ((buffer (session-buffer editor)))
+          (is string= "survey.msg" (tuatara.buffer:buffer-name buffer))
+          (true (tuatara.command::buffer-mode-named-p buffer 'tuatara.defaults::mail-view-mode))
+          (true (tuatara.buffer:buffer-local buffer :read-only))
+          (has (session-text editor) "Kea survey results")
+          (tuatara.buffer:kill-buffer buffer)))
+      ;; RET on the picture: its private copy opened safely; on the item attached, a message
+      (multiple-value-bind (f editor) (outlook-session path (list (to-attachment 0) "RET"))
+        (declare (ignore f))
+        (let* ((shown (session-buffer editor))
+               (copy (tuatara.io:native (tuatara.buffer:buffer-file shown))))
+          (true (tuatara.io:safe-visit-p shown))
+          (is string= "kea.png" (tuatara.io:native-file-name copy))
+          (true (search "/opened/" copy))
+          (is = #o400 (logand #o777 (tuatara.io:stamp-mode (tuatara.io:path-stamp copy))))
+          (is equalp *png-test-octets* (tuatara.io:file-octets copy))
+          (tuatara.buffer:kill-buffer shown)
+          (when (search "/opened/" copy) (tuatara.io:delete-tree (tuatara.io:parent-path copy)))))
+      (multiple-value-bind (f editor) (outlook-session path (list (to-attachment 1) "RET"))
+        (declare (ignore f))
+        (has (session-text editor) "Inner body 1")
+        (true (tuatara.command::buffer-mode-named-p (session-buffer editor) 'tuatara.defaults::mail-view-mode)))
+      ;; T: the file itself, as text
+      (multiple-value-bind (f editor) (outlook-session path (list "T"))
+        (declare (ignore f))
+        (is equal (tuatara.io:native path) (tuatara.io:native (tuatara.buffer:buffer-file (session-buffer editor)))))
+      (dolist (b (copy-list tuatara.buffer:*buffers*))
+        (when (tuatara.command::buffer-mode-named-p b 'tuatara.defaults::mail-view-mode) (tuatara.buffer:kill-buffer b)))
+      ;; the item itself never touched
+      (is equalp before (tuatara.io:file-octets path))
+      (is = (tuatara.io:stamp-mtime stamp) (tuatara.io:stamp-mtime (tuatara.io:path-stamp path)))))
+  ;; names an attachment gives made a name of a file alone
+  (is string= "passwd" (tuatara.defaults::attachment-file-name "../../etc/passwd"))
+  (is string= "b.exe" (tuatara.defaults::attachment-file-name "a\\b.exe"))
+  (is string= "attachment" (tuatara.defaults::attachment-file-name ".."))
+  (is string= "attachment" (tuatara.defaults::attachment-file-name nil)))
+
+(define-test (outlook saved-mail-opened)
+  (with-test-directory (dir)
+    (let ((path (write-test-octets (merge-pathnames "count.eml" dir) (sb-ext:string-to-octets *eml-test-text* :external-format :utf-8))))
+      (multiple-value-bind (f editor) (outlook-session path '())
+        (declare (ignore f))
+        (has (session-text editor) "Café survey")
+        (has (session-text editor) "résumé.png")
+        (tuatara.buffer:kill-buffer (session-buffer editor)))
+      ;; T shows its text, as any file is opened
+      (multiple-value-bind (f editor) (outlook-session path (list "T"))
+        (declare (ignore f))
+        (has (session-text editor) "Content-Transfer-Encoding: quoted-printable")
+        (dolist (b (copy-list tuatara.buffer:*buffers*))
+          (when (or (tuatara.command::buffer-mode-named-p b 'tuatara.defaults::mail-view-mode) (eq b (session-buffer editor)))
+            (tuatara.buffer:kill-buffer b)))))))
+
+;;; Mailboxes
+
+(defun put-test-file (path text)
+  "Write TEXT at PATH, its directories made."
+  (ensure-directories-exist path)
+  (write-test-octets path (sb-ext:string-to-octets text :external-format :utf-8)))
+
+(define-test (outlook mailbox-listed)
+  ;; what readpst writes, made by hand: readpst itself is run only where it is installed
+  (with-test-directory (dir)
+    (let* ((out (merge-pathnames "out/" dir))
+           (pst (write-test-octets (merge-pathnames "archive.pst" dir) (sb-ext:string-to-octets "!BDN    SM" :external-format :latin-1)))
+           (buffer (tuatara.buffer:make-buffer (tuatara.buffer:unique-buffer-name "archive.pst (mailbox)")))
+           (job (tuatara.defaults::make-mailbox-job buffer pst (namestring out))))
+      (put-test-file (merge-pathnames "Outlook Data File/Inbox/1.eml" out)
+                     (format nil "From: Kea <kea@example.org>~%Subject: First~%Date: Tue, 6 Oct 2026 09:00:00 +0000~%~%one~%"))
+      (put-test-file (merge-pathnames "Outlook Data File/Inbox/2.eml" out) *eml-test-text*)
+      (put-test-file (merge-pathnames "Outlook Data File/Inbox/10.eml" out) (format nil "Subject: Tenth~%~%ten~%"))
+      (put-test-file (merge-pathnames "Outlook Data File/Contacts/1.vcf" out) (format nil "BEGIN:VCARD~%FN:Kea~%END:VCARD~%"))
+      (sb-posix:symlink "/etc/passwd" (namestring (merge-pathnames "Outlook Data File/Inbox/3.eml" out)))
+      (is eq :pst (nth-value 1 (tuatara.io:octets-kind (tuatara.io:file-head pst))))
+      (tuatara.defaults::mailbox-list job)
+      (let ((folders (tuatara.defaults::mailbox-job-folders job)))
+        (is equal '("Outlook Data File/Contacts" "Outlook Data File/Inbox") (mapcar #'car folders))
+        ;; in the order of their numbers, the link passed over
+        (is equal '("First" "Café survey" "Tenth") (mapcar #'tuatara.defaults::mailbox-item-subject (cdr (second folders))))
+        (is equal '(0 2 0) (mapcar #'tuatara.defaults::mailbox-item-attachments (cdr (second folders))))
+        (is string= "1.vcf" (tuatara.defaults::mailbox-item-subject (first (cdr (first folders))))))
+      (tuatara.modes:set-major-mode buffer 'tuatara.defaults::mailbox-mode)
+      (tuatara.defaults::mailbox-render buffer job)
+      (let ((text (tuatara.buffer:buffer-string buffer)))
+        (has text "Outlook mailbox archive.pst")
+        (has text "4 items in 2 folders")
+        (has text "Outlook Data File/Inbox (3)")
+        (has text "2026-10-06")
+        (has text "Café survey"))
+      ;; each line its item
+      (let ((item (tuatara.defaults::list-entry-at buffer (tuatara.buffer:buffer-point buffer))))
+        (true (tuatara.defaults::mailbox-item-p item)))
+      (tuatara.buffer:kill-buffer buffer))))
+
+(define-test (outlook mailbox-without-readpst)
+  (with-test-directory (dir)
+    (let ((pst (write-test-octets (merge-pathnames "archive.pst" dir)
+                                  (concatenate '(vector (unsigned-byte 8)) (sb-ext:string-to-octets "!BDN    SM" :external-format :latin-1)
+                                               (make-array 600 :initial-element 0)))))
+      (let ((tuatara-user:*readpst-program* "no-such-readpst"))
+        ;; opened as any file, saying how to get readpst
+        (multiple-value-bind (f editor) (outlook-session pst '())
+          (true (tuatara.frontend.fake:fake-frame-showing f "libpst"))
+          (is string= "archive.pst" (tuatara.buffer:buffer-name (session-buffer editor)))
+          (tuatara.buffer:kill-buffer (session-buffer editor)))
+        ;; started with it: opened as C-x C-f opens it, in the hex view, saying the same
+        (let ((f (tuatara.frontend.fake:make-fake-frontend :width 400 :height 20)))
+          (tuatara.command:run-editor f :files (list (namestring pst)) :setup #'tuatara.defaults:install-defaults)
+          (true (tuatara.frontend.fake:fake-frame-showing f "Hex 0x00000000"))
+          (true (tuatara.frontend.fake:fake-frame-showing f "libpst"))
+          (tuatara.buffer:kill-buffer (tuatara.buffer:find-buffer "archive.pst")))
+        (has (tuatara.defaults::outlook-health-words) "libpst")
+        (has (tuatara.defaults::mailbox-preview-words "archive.pst" 2048) "not installed"))
+      (if (not (tuatara.defaults::mailbox-readpst))
+          (skip "readpst is not installed here" (true nil))
+          (progn
+            (has (tuatara.defaults::outlook-health-words) "shut in")
+            ;; readpst reads a copy: the mailbox's access time kept, the copy gone after
+            (sb-posix:utimes (namestring pst) 946681200 946681200)
+            (multiple-value-bind (f editor) (outlook-session pst '())
+              (declare (ignore f))
+              (tuatara.buffer:kill-buffer (session-buffer editor)))
+            (is = 946681200 (sb-posix:stat-atime (sb-posix:stat (namestring pst))))
+            (false (directory (merge-pathnames "*.pst" (tuatara.defaults::private-cache-directory "mailboxes/")))))))))
+
+;;; Previews, loading
+
+(define-test (outlook previews-and-loading)
+  (with-test-directory (dir)
+    (let ((path (write-test-octets (merge-pathnames "survey.msg" dir) (msg-test-octets))))
+      (tuatara.io:call-with-file path
+                                 (lambda (fd name size)
+                                   (let ((text (tuatara.defaults::outlook-preview-text fd name size :ole (tuatara.io:read-fd-start fd name size 4096))))
+                                     (has text "Kea survey results")
+                                     (has text "kea.png")
+                                     (has text "Twelve kea"))))))
+  ;; a path is no package's name
+  (fail (tuatara-user:load-package "../outlook"))
+  ;; the package's views and preview in place
+  (true (member 'tuatara.defaults::mail-visit tuatara.defaults::*file-views*))
+  (true (member 'tuatara.defaults::outlook-preview-text tuatara.defaults::*preview-text-functions*))
+  (true (member 'tuatara.defaults::outlook-health-words tuatara.defaults::*health-decoder-functions*)))
+
+(define-test (outlook shared-and-deep)
+  ;; an entry two storages name belongs to the first alone, and streams coming to more than twice the file
+  ;; are refused, so that one stream is never copied for each storage that names it
+  (let* ((entries (vector (tuatara.defaults::make-cfb-entry :name "Root" :type :root :child 1 :index 0)
+                          (tuatara.defaults::make-cfb-entry :name "a" :type :storage :right 2 :child 3 :index 1)
+                          (tuatara.defaults::make-cfb-entry :name "b" :type :storage :child 3 :index 2)
+                          (tuatara.defaults::make-cfb-entry :name "shared" :type :stream :start 0 :size 60 :index 3)))
+         (cfb (tuatara.defaults::%make-cfb :octets (make-array 1024 :element-type '(unsigned-byte 8)) :sector-size 512 :sectors 1
+                                           :entries entries :cutoff 4096
+                                           :mini-stream (make-array 4096 :element-type '(unsigned-byte 8))
+                                           :mini-fat (make-array 64 :element-type '(unsigned-byte 32) :initial-element #xFFFFFFFE))))
+    (is equal '("shared") (mapcar #'tuatara.defaults::cfb-entry-name (tuatara.defaults::cfb-children cfb (aref entries 1))))
+    (false (tuatara.defaults::cfb-children cfb (aref entries 2)))
+    (setf (tuatara.defaults::cfb-entry-size (aref entries 3)) 60)
+    (is = 60 (length (tuatara.defaults::cfb-stream-octets cfb (aref entries 3))))
+    (setf (tuatara.defaults::cfb-given cfb) 2000)
+    (fail (tuatara.defaults::cfb-stream-octets cfb (aref entries 3))))
+  ;; RTF nested a hundred thousand deep: read at once, not in time growing with the square of it
+  (let ((start (get-internal-real-time)))
+    (tuatara.defaults::rtf-text (make-array 200000 :element-type '(unsigned-byte 8) :initial-element 123))
+    (true (< (- (get-internal-real-time) start) (* 2 internal-time-units-per-second)))))
