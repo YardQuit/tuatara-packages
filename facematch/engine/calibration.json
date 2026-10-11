@@ -1,0 +1,72 @@
+{
+  "slope": 29.944905846909258,
+  "intercept": -7.111351174765532,
+  "source": "LFW, 6000 labelled pairs at even odds, 2026-10-11",
+  "pairs": 6000,
+  "skipped": 0,
+  "held_out": {
+    "log_loss": 0.0454,
+    "brier": 0.0098,
+    "accuracy": 0.9883,
+    "accuracy_spread": 0.0033
+  },
+  "similarity_at_even_chance": 0.2375,
+  "bands": [
+    {
+      "predicted": [
+        0,
+        0.05
+      ],
+      "pairs": 2788,
+      "same_person": 0.0086
+    },
+    {
+      "predicted": [
+        0.05,
+        0.2
+      ],
+      "pairs": 195,
+      "same_person": 0.0872
+    },
+    {
+      "predicted": [
+        0.2,
+        0.45
+      ],
+      "pairs": 51,
+      "same_person": 0.2157
+    },
+    {
+      "predicted": [
+        0.45,
+        0.55
+      ],
+      "pairs": 13,
+      "same_person": 0.3846
+    },
+    {
+      "predicted": [
+        0.55,
+        0.8
+      ],
+      "pairs": 23,
+      "same_person": 0.6957
+    },
+    {
+      "predicted": [
+        0.8,
+        0.95
+      ],
+      "pairs": 57,
+      "same_person": 0.9474
+    },
+    {
+      "predicted": [
+        0.95,
+        1
+      ],
+      "pairs": 2873,
+      "same_person": 1.0
+    }
+  ]
+}

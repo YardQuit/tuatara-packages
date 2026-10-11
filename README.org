@@ -15,6 +15,11 @@ everyone needs, and none is part of the editor.
   private copies, and the files are never changed.
 - =garamond= :: one space or two after a full stop, as the document itself
   says in its =Local Variables:= block: typed, filled and moved over that way.
+- =facematch= :: candidate photos ranked by how probable it is that they show
+  the person of one or more master photos, marked in rimu: each with its
+  probability (calibrated on LFW) and the ODNI's words for it. Its engine,
+  InsightFace with AuraFace-v1 and YuNet, is built into one AppImage
+  (=facematch/engine/=) and run shut in the sandbox.
 - =facecomp= :: faces in photos compared with a master photo's by the
   facecomp program, shut in the sandbox on copies of the photos: a match,
   a confidence label and the similarity for each.
@@ -57,6 +62,10 @@ English, one way for each kind of thing.
 
 - garamond :: made from the Emacs package of the same name, by the same author
   (github.com/YardQuit/garamond).
+- facematch :: InsightFace (MIT) aligns and embeds faces; AuraFace-v1 by fal
+  (Apache 2.0) makes them numbers; YuNet from OpenCV Zoo (MIT) finds them;
+  the probabilities are calibrated on Labeled Faces in the Wild (University
+  of Massachusetts, Amherst); the words are the ODNI's (ICD 203).
 - facecomp :: drives the facecomp program and is made from its Emacs front
   end, by the same author (github.com/yardquit/facecomp); its models are
   OpenCV Zoo's (YuNet, SFace) and the ONNX Model Zoo's (ArcFace).
