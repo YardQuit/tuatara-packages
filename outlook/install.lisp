@@ -7,7 +7,7 @@
 ;;;; a list of them; rimu's preview shows them too, and M-x check-health
 ;;;; says what reads them here.
 
-(in-package #:tuatara.defaults)
+(in-package #:outlook)
 
 (defun install-outlook ()
   "Have messages and mailboxes visited shown as such (MAIL-VISIT,
@@ -24,6 +24,6 @@ what reads them, and a mailbox's messages deleted with its list."
   (pushnew 'mailbox-visit *file-views*)
   (pushnew 'outlook-preview-text *preview-text-functions*)
   (pushnew 'outlook-health-words *health-decoder-functions*)
-  (pushnew 'mailbox-forget tuatara.buffer:*kill-buffer-functions*))
+  (pushnew 'mailbox-forget *kill-buffer-functions*))
 
 (install-outlook)

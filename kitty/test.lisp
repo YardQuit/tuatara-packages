@@ -11,9 +11,9 @@
   (let ((listing "[{\"id\": 1, \"tabs\": [{\"windows\": [{\"id\": 1, \"title\": \"edit\", \"cwd\": \"/a\"},
                                                      {\"id\": 2, \"title\": \"sh \\u00e9\", \"cwd\": \"/b\"}]}]},
                    {\"id\": 2, \"tabs\": []}]"))
-    (is equal '((1 "edit" "/a") (2 "sh é" "/b")) (tuatara.defaults::kitty-listed-windows listing nil))
-    (is equal '((2 "sh é" "/b")) (tuatara.defaults::kitty-listed-windows listing 1))
-    (is equal '() (tuatara.defaults::kitty-listed-windows "[]" nil))))
+      (is equal '((1 "edit" "/a") (2 "sh é" "/b")) (kitty::kitty-listed-windows listing nil))
+      (is equal '((2 "sh é" "/b")) (kitty::kitty-listed-windows listing 1))
+      (is equal '() (kitty::kitty-listed-windows "[]" nil))))
 
 (define-test (kitty ansi-colours)
   (let ((pieces (tuatara.defaults::ansi-pieces
@@ -54,17 +54,17 @@
               (outside (namestring (merge-pathnames "outside.txt" dir))))
           (sb-posix:setenv "XDG_CONFIG_HOME" (namestring (merge-pathnames "config/" dir)) 1)
           (unwind-protect
-               (let ((tuatara.defaults::*kitty-start-arguments* '("--hidden"))
-                     (tuatara.defaults::*kitty-socket* nil)
-                     (tuatara.defaults::*kitty-window* nil))
+                 (let ((kitty::*kitty-start-arguments* '("--hidden"))
+                       (kitty::*kitty-socket* nil)
+                       (kitty::*kitty-window* nil))
                  ;; opened: a kitty of the editor's own, its configuration made with examples only
                  (multiple-value-bind (f editor)
                      (run-keys "M-x k i t t y RET" :text "" :width 80 :height 10)
                    (declare (ignore editor))
                    (true (tuatara.frontend.fake:fake-frame-showing f "kitty opened in")))
-                 (let ((socket tuatara.defaults::*kitty-socket*))
+                   (let ((socket kitty::*kitty-socket*))
                    (true (search "/tuatara-kitty-" socket))
-                   (true (tuatara.defaults::kitty-alive-p socket))
+                     (true (kitty::kitty-alive-p socket))
                    (true (search "Remote control is set by Tuatara"
                                 (alexandria:read-file-into-string (merge-pathnames "config/tuatara/kitty.conf" dir))))
                    (unwind-protect
@@ -82,5 +82,5 @@
                             (declare (ignore f))
                             (true (search "tuatara-marker-42" (session-text editor)))
                             (true (uiop:string-prefix-p "*kitty: " (tuatara.buffer:buffer-name (session-buffer editor))))))
-                     (ignore-errors (tuatara.defaults::kitty-call socket '("close-window" "--match" "all"))))))
+                       (ignore-errors (kitty::kitty-call socket '("close-window" "--match" "all"))))))
             (if old (sb-posix:setenv "XDG_CONFIG_HOME" old 1) (sb-posix:unsetenv "XDG_CONFIG_HOME")))))))

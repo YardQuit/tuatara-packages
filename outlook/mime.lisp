@@ -11,7 +11,7 @@
 ;;;; HTML is read as text: its markup left out, links and pictures named,
 ;;;; nothing it points to fetched.
 
-(in-package #:tuatara.defaults)
+(in-package #:outlook)
 
 (defparameter *mime-part-limit* 5000
   "The most parts of a message read; those after are left out, and the message says so.")
@@ -53,11 +53,11 @@ END)."
                      ((and headers (member (aref octets i) '(32 9)))       ; a line folded on
                       (setf (cdr (first headers))
                             (concatenate 'string (cdr (first headers)) " "
-                                         (string-trim " 	" (tuatara.text:octets-string octets :start i :end text-end)))))
+                                         (string-trim " 	" (octets-string octets :start i :end text-end)))))
                      (t (let ((colon (position 58 octets :start i :end text-end)))
                           (if colon
-                              (push (cons (string-downcase (string-trim " 	" (tuatara.text:octets-string octets :start i :end colon)))
-                                          (string-trim " 	" (tuatara.text:octets-string octets :start (1+ colon) :end text-end)))
+                              (push (cons (string-downcase (string-trim " 	" (octets-string octets :start i :end colon)))
+                                          (string-trim " 	" (octets-string octets :start (1+ colon) :end text-end)))
                                     headers)
                               ;; no header: the body began without its empty line
                               (return-from mime-headers (values (nreverse headers) i))))))
@@ -97,7 +97,7 @@ charset of its own (name*0*=utf-8''%C3%A9...) put together and decoded."
                          (let ((second (position #\' value :start (1+ first))))
                            (when second
                              (setf charset (subseq value 0 first) value (subseq value (1+ second))))))))
-                   (loop for b across (if encoded (tuatara.io:percent-decoded-octets value) (tuatara.text:string-octets value))
+                   (loop for b across (if encoded (percent-decoded-octets value) (string-octets value))
                          do (vector-push-extend b octets))))
         (push (cons name (mail-decode (coerce octets '(simple-array (unsigned-byte 8) (*))) charset)) plain)))
     (values head (nreverse plain))))
@@ -131,8 +131,8 @@ left out."
                  (encoding (char-upcase (char text (aref group-starts 1))))
                  (data (subseq text (aref group-starts 2) (aref group-ends 2)))
                  (octets (if (char= encoding #\B)
-                             (tuatara.io:base64-octets (tuatara.text:string-octets data))
-                             (mime-quoted-printable-octets (tuatara.text:string-octets (substitute #\Space #\_ data))))))
+                             (base64-octets (string-octets data))
+                             (mime-quoted-printable-octets (string-octets (substitute #\Space #\_ data))))))
             (write-string (mail-decode octets charset) out))
           (setf at end last-end end))
         (write-string text out :start at)
@@ -197,7 +197,7 @@ headers, its type, its parts read in turn to a depth of twice
 lines --BOUNDARY, each read with MIME-READ at DEPTH + 1; the last running to
 END when its closing line --BOUNDARY-- never comes. NIL when the boundary
 is never found."
-  (let* ((delimiter (tuatara.text:string-octets (concatenate 'string "--" boundary)))
+  (let* ((delimiter (string-octets (concatenate 'string "--" boundary)))
          (marks '()) (closed nil) (i start))
     ;; the delimiter lines: their starts, and where the parts after them start
     (loop while (and (< i end) (not closed))
@@ -232,7 +232,7 @@ quoted-printable); at most *OUTLOOK-LARGEST-FILE* of them read."
          (start (mime-part-body-start part))
          (end (min (mime-part-body-end part) (+ start *outlook-largest-file*)))
          (encoding (string-downcase (string-trim " " (or (mime-header part "content-transfer-encoding") "")))))
-    (cond ((string= encoding "base64") (tuatara.io:base64-octets octets :start start :end end))
+    (cond ((string= encoding "base64") (base64-octets octets :start start :end end))
           ((string= encoding "quoted-printable") (mime-quoted-printable-octets octets :start start :end end))
           (t (subseq octets start end)))))
 
@@ -324,9 +324,9 @@ whole."
                             :subject (header "subject") :sent (mail-date-time date) :received received
                             :message-id (header "message-id")
                             :headers (string-right-trim '(#\Return #\Newline)
-                                                        (tuatara.text:octets-string (mime-part-octets part)
-                                                                                    :start (mime-part-start part)
-                                                                                    :end (mime-part-header-end part))))))
+                                                        (octets-string (mime-part-octets part)
+                                                                       :start (mime-part-start part)
+                                                                       :end (mime-part-header-end part))))))
       (unless (mail-sent mail) (setf (mail-date-text mail) date))
       (dolist (name *mail-shown-headers*)
         (mail-detail mail (string-capitalize name) (header name)))

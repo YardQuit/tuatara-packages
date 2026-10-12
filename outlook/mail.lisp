@@ -8,42 +8,38 @@
 ;;;; leniently, an octet that is not of the encoding shown as such, never an
 ;;;; error.
 
-(in-package #:tuatara.defaults)
+(in-package #:outlook)
 
-(defvar tuatara-user::*outlook-readpst-program* "readpst"
+(define-package-setting *outlook-readpst-program* "readpst"
   "The program that reads Outlook mailboxes (.pst, .ost) into separate
 messages, shut in the sandbox: readpst, of the libpst package, looked for in
 the system's own directories of programs. Set it in the init file after the
 outlook package is loaded.")
 
-(defvar tuatara-user::*outlook-include-deleted* t
+(define-package-setting *outlook-include-deleted* t
   "True to list the items a mailbox (.pst, .ost) still holds that were
 deleted, in the folders they were deleted from, beside the others; NIL to
 list only the items it holds as not deleted.")
 
-(defvar tuatara-user::*outlook-largest-file* (* 256 1024 1024)
+(define-package-setting *outlook-largest-file* (* 256 1024 1024)
   "The most octets an Outlook item (.msg) or a saved mail (.eml) may have to be
 read as a message, and an attachment or a part of one may hold: 256 MB as
 standard. A larger one is opened as any file.")
 
-(defvar tuatara-user::*outlook-nesting-limit* 8
+(define-package-setting *outlook-nesting-limit* 8
   "How deep messages attached to messages are read: an attachment that is a
 message is shown as one up to this many levels down, deeper ones listed as
 not read; a message of parts within parts is read as deep as twice this.")
 
-(defvar tuatara-user::*outlook-mailbox-seconds* 3600
+(define-package-setting *outlook-mailbox-seconds* 3600
   "The most seconds readpst may take reading a mailbox (.pst, .ost): an hour as
 standard, after which it is stopped and what it wrote by then is listed.")
 
-(defvar tuatara-user::*outlook-mailbox-space* (* 32 1024 1024 1024)
+(define-package-setting *outlook-mailbox-space* (* 32 1024 1024 1024)
   "The most octets readpst may write reading a mailbox (.pst, .ost), its
 messages in your cache directory: 32 GB as standard. It is stopped there, as
 it is when the drive has less than 1 GB free, and what it wrote by then is
 listed.")
-
-(export '(tuatara-user::*outlook-readpst-program* tuatara-user::*outlook-include-deleted* tuatara-user::*outlook-largest-file*
-          tuatara-user::*outlook-nesting-limit* tuatara-user::*outlook-mailbox-seconds* tuatara-user::*outlook-mailbox-space*)
-        :tuatara-user)
 
 ;;; A message
 
@@ -134,7 +130,7 @@ kept as its raw byte."
     (or (and format
              (ignore-errors (sb-ext:octets-to-string octets :start start :end end
                                                             :external-format (list format :replacement (code-char #xFFFD)))))
-        (tuatara.text:octets-string octets :start start :end end))))
+        (octets-string octets :start start :end end))))
 
 ;;; Times
 

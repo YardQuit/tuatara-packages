@@ -17,7 +17,7 @@
 ;;;; and HTML kept in RTF (as Outlook keeps HTML mail) taken back out to be
 ;;;; read as HTML.
 
-(in-package #:tuatara.defaults)
+(in-package #:outlook)
 
 (defstruct (cfb (:constructor %make-cfb) (:copier nil))
   "A compound file read from OCTETS: SECTOR-SIZE octets a sector (512 or
@@ -44,7 +44,7 @@ sector, and SIZE, its octets; INDEX, its own place in the directory."
 (defun cfb-number (octets at count)
   "The number in COUNT octets of OCTETS from AT, least significant first; an
 error saying the file is cut short when they are past its end."
-  (or (tuatara.io:octets-le octets at count) (error "The compound file ends too soon")))
+  (or (octets-le octets at count) (error "The compound file ends too soon")))
 
 (defun cfb-chain (start table limit &key (what "a sector chain"))
   "The sectors chained from START by TABLE (a FAT or mini FAT), in order, as a
@@ -82,7 +82,7 @@ as it goes."
 (defun cfb-read (octets)
   "The compound file in OCTETS, a CFB; an error saying why when it is not one,
 or is made so that following it would not end or would read past it."
-  (unless (and (>= (length octets) 512) (tuatara.io:octets-at-p octets tuatara.io:*compound-file-signature*))
+  (unless (and (>= (length octets) 512) (octets-at-p octets *compound-file-signature*))
     (error "Not a compound file"))
   (let* ((shift (cfb-number octets 30 2))
          (mini-shift (cfb-number octets 32 2))
@@ -110,7 +110,7 @@ or is made so that following it would not end or would read past it."
               do (when (>= sector sectors) (error "A FAT sector of the compound file lies past its end"))
                  (let ((base (* (1+ sector) sector-size)))
                    (loop for i below per-sector
-                         do (setf (aref fat (+ (* k per-sector) i)) (or (tuatara.io:octets-le octets (+ base (* 4 i)) 4) #xFFFFFFFF)))))
+                      do (setf (aref fat (+ (* k per-sector) i)) (or (octets-le octets (+ base (* 4 i)) 4) #xFFFFFFFF)))))
         (let* ((directory (cfb-sector-octets octets (cfb-chain (cfb-number octets 48 4) fat sectors :what "The directory")
                                              sector-size))
                (entries (cfb-directory directory (= sector-size 4096)))
@@ -259,11 +259,11 @@ past the space that may end it."
   (let* ((n (length octets))
          (start i)
          (word (progn (loop while (and (< i n) (let ((o (aref octets i))) (or (<= 97 o 122) (<= 65 o 90)))) do (incf i))
-                      (tuatara.text:octets-latin-1 octets :start start :end i)))
+                      (octets-latin-1 octets :start start :end i)))
          (parameter (let ((p i))
                       (when (and (< p n) (= (aref octets p) 45)) (incf p))
                       (loop while (and (< p n) (<= 48 (aref octets p) 57) (< (- p i) 10)) do (incf p))
-                      (prog1 (and (> p i) (ignore-errors (parse-integer (tuatara.text:octets-latin-1 octets :start i :end p))))
+                      (prog1 (and (> p i) (ignore-errors (parse-integer (octets-latin-1 octets :start i :end p))))
                         (setf i p)))))
     (when (and (< i n) (= (aref octets i) 32)) (incf i))
     (values word parameter i)))
@@ -304,7 +304,7 @@ read as HTML (HTML-TEXT), its markup taken from where it keeps it."
              (consumed-by-u ()
                (when (plusp to-skip) (decf to-skip) t)))
       (loop while (and (< i n) (< written limit))
-            do (when (zerop (mod (incf steps) 65536)) (tuatara.runtime:job-check-stop))
+            do (when (zerop (mod (incf steps) 65536)) (job-check-stop))
                (let ((c (aref octets i)))
                  (cond
                    ((= c 123)                                              ; {
@@ -348,7 +348,7 @@ read as HTML (HTML-TEXT), its markup taken from where it keeps it."
                                   (let ((said (rtf-word-text word)))
                                     (when said (emit said)))))))
                         ((= next 39)                                       ; \'XX, an octet of the code page
-                         (let ((value (and (<= (+ i 3) n) (ignore-errors (parse-integer (tuatara.text:octets-latin-1 octets :start (1+ i) :end (+ i 3)) :radix 16)))))
+                      (let ((value (and (<= (+ i 3) n) (ignore-errors (parse-integer (octets-latin-1 octets :start (1+ i) :end (+ i 3)) :radix 16)))))
                            (incf i 3)
                            (when (and value (not (consumed-by-u)) (text-p))
                              (vector-push-extend value pending))))

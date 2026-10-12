@@ -18,13 +18,15 @@
 ;;;; run in it runs as you, and like any such program may reach the socket;
 ;;;; what a window only shows (a file's escape sequences) cannot.
 
-(in-package #:tuatara.defaults)
+(defpackage #:kitty
+  (:use #:cl #:tuatara)
+  (:documentation "kitty windows the editor opens, reads and types into: M-x kitty."))
 
-(defvar tuatara-user::*kitty-program* "kitty"
+(in-package #:kitty)
+
+(define-package-setting *kitty-program* "kitty"
   "The kitty program \\[kitty] opens windows of, found on the PATH. Set it in the
 init file after the package is loaded.")
-
-(export 'tuatara-user::*kitty-program* :tuatara-user)
 
 (defparameter *kitty-launcher*
   (package-file "tuatara-kitty")
@@ -55,12 +57,11 @@ kitty: none, but for the tests, whose kitty starts hidden (--hidden).")
 standard input; its output as a string, and as a second value true when it
 went well. At most *KITTY-SECONDS*; for a command the editor keeps reading
 keys meanwhile, \\`C-g' giving up."
-  (let ((kitten (or (tuatara.io:find-program "kitten") (tuatara.io:program-missing "kitten" :install "kitty 0.28 or later has it"))))
-    (tuatara.io:program-output (list* kitten "@" "--to" socket arguments)
-                               :input input :seconds *kitty-seconds*
-                               :wait (and *editor* (editor-frontend *editor*)
-                                          (lambda (thread seconds)
-                                            (wait-interruptibly thread :message "Waiting for kitty..." :seconds seconds))))))
+  (let ((kitten (or (find-program "kitten") (program-missing "kitten" :install "kitty 0.28 or later has it"))))
+    (program-output (list* kitten "@" "--to" socket arguments)
+                    :input input :seconds *kitty-seconds*
+                    :wait (lambda (thread seconds)
+                            (wait-interruptibly thread :message "Waiting for kitty..." :seconds seconds)))))
 
 (defun kitty-alive-p (socket)
   "True when the kitty at SOCKET answers."
@@ -83,7 +84,7 @@ you may enter it), its name random: unix:PATH."
 
 (defun kitty-program ()
   "The kitty program, or an error when it is not installed."
-  (or (tuatara.io:find-program tuatara-user::*kitty-program*) (tuatara.io:program-missing tuatara-user::*kitty-program*)))
+  (or (find-program *kitty-program*) (program-missing *kitty-program*)))
 
 (defun kitty-start (directory)
   "Start a kitty of the editor's own with its first window in DIRECTORY,
@@ -91,12 +92,12 @@ listening on a new socket in your runtime folder; wait for it to answer, at
 most three seconds. Returns its socket."
   (let* ((program (kitty-program)) (socket (kitty-new-socket))
          (path (subseq socket (length "unix:")))
-         (deadline (tuatara.runtime:deadline-in *kitty-seconds*)))
+         (deadline (deadline-in *kitty-seconds*)))
     (start-detached (namestring *kitty-launcher*)
                     (append *kitty-start-arguments* (list "--program" program "--shell" directory socket))
                     :label "kitty")
     ;; its socket's file is there once it listens
-    (wait-until-interruptibly (lambda () (or (tuatara.io:path-stamp path) (tuatara.runtime:deadline-passed-p deadline)))
+    (wait-until-interruptibly (lambda () (or (path-stamp path) (deadline-passed-p deadline)))
                               :message "Starting kitty...")
     (unless (kitty-alive-p socket) (error "kitty did not start (~a)" program))
     (setf *kitty-socket* socket)))
@@ -108,11 +109,11 @@ editor runs in such a kitty, started with kitty/tuatara-kitty). Your
 kitty.conf gives its looks, and ~/.config/tuatara/kitty.conf over it; the
 editor alone can steer it, over a socket of its own. \\[kitty-text] brings its
 text here, \\[kitty-input] types a line or the selection into it."
-  (let ((directory (tuatara.io:native (buffer-directory (current-buffer)))))
-    (unless (tuatara.io:find-program tuatara-user::*kitty-program*)
-      (tuatara.io:program-missing tuatara-user::*kitty-program* :why "no window to open"))
-    (unless (tuatara.io:find-program "kitten")
-      (tuatara.io:program-missing "kitten" :install "kitty 0.28 or later has it" :why "no window to open"))
+  (let ((directory (native (buffer-directory (current-buffer)))))
+    (unless (find-program *kitty-program*)
+      (program-missing *kitty-program* :why "no window to open"))
+    (unless (find-program "kitten")
+      (program-missing "kitten" :install "kitty 0.28 or later has it" :why "no window to open"))
     (let ((here (kitty-socket-of-environment)) (socket (kitty-socket)))
       (cond ((and socket (equal socket here))
              (kitty-call socket (list "launch" "--type=window" "--location=vsplit" "--cwd" directory)))
@@ -124,12 +125,12 @@ text here, \\[kitty-input] types a line or the selection into it."
 (defun kitty-listed-windows (listing own)
   "The windows LISTING, what kitty's ls answers (JSON text), names, each (ID
 TITLE DIRECTORY), the window OWN (an id, or NIL) left out."
-  (loop for os-window across (tuatara.text:json-items (tuatara.text:json-read listing))
-        append (loop for tab across (tuatara.text:json-items os-window "tabs")
-                     append (loop for window across (tuatara.text:json-items tab "windows")
-                                  for id = (tuatara.text:json-get window "id")
+  (loop for os-window across (json-items (json-read listing))
+        append (loop for tab across (json-items os-window "tabs")
+                     append (loop for window across (json-items tab "windows")
+                                  for id = (json-get window "id")
                                   unless (eql id own)
-                                    collect (list id (tuatara.text:json-get window "title") (tuatara.text:json-get window "cwd"))))))
+                                  collect (list id (json-get window "title") (json-get window "cwd"))))))
 
 (defun kitty-windows (socket)
   "The windows of the kitty at SOCKET, each (ID TITLE DIRECTORY), the editor's
@@ -175,8 +176,8 @@ search and copy as any text. Asked which window when there are several.
                                 (kitty-call socket (list "get-text" "--match" (format nil "id:~d" id) "--extent" "all" "--ansi"))
                               (if ok (ansi-pieces (string-right-trim '(#\Space #\Newline) text)) (list "The kitty window is no longer open."))))
                    :point :start)
-    (setf (tuatara.buffer:buffer-point buffer) (tuatara.buffer:buffer-size buffer))
-    (show-buffer *editor* buffer)))
+    (setf (buffer-point buffer) (buffer-size buffer))
+    (show-buffer buffer)))
 
 (define-command kitty-input ()
   "Type into a kitty window the editor opened (\\[kitty]) the selection, or
@@ -184,12 +185,12 @@ without one the line point is on and a return, so that the shell runs it.
 Asked which window when there are several."
   (let* ((socket (kitty-socket-or-error))
          (buffer (current-buffer))
-         (selected (multiple-value-bind (start end) (tuatara.buffer:buffer-region buffer)
-                     (and start (< start end) (tuatara.buffer:buffer-mark-active-p buffer))))
+         (selected (multiple-value-bind (start end) (buffer-region buffer)
+                     (and start (< start end) (buffer-mark-active-p buffer))))
          (text (if selected
-                   (multiple-value-bind (start end) (tuatara.buffer:buffer-region buffer)
-                     (tuatara.buffer:buffer-string buffer :start start :end end))
-                   (tuatara.buffer:buffer-line-text buffer (tuatara.buffer:buffer-line-start buffer (point))))))
+                   (multiple-value-bind (start end) (buffer-region buffer)
+                     (buffer-string buffer :start start :end end))
+                   (buffer-line-text buffer (buffer-line-start buffer (buffer-point buffer))))))
     ;; what a file holds is sent as text, never as keys: a carriage return or an
     ;; escape in it could run more than is shown
     (when (find-if (lambda (c) (and (< (char-code c) 32) (not (member c '(#\Tab #\Newline))))) text)

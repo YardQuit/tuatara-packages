@@ -12,7 +12,7 @@
 ;;;; mailbox itself is never changed; what readpst wrote goes when its list
 ;;;; is closed.
 
-(in-package #:tuatara.defaults)
+(in-package #:outlook)
 
 (define-major-mode mailbox-mode special-mode
   "An Outlook mailbox (.pst, .ost) read by readpst, shut in the sandbox: its
@@ -35,7 +35,7 @@ time or NIL; FROM and SUBJECT as written to be read; ATTACHMENTS, how many."
 
 (defun mailbox-readpst ()
   "The full path of readpst (*READPST-PROGRAM*) where the sandbox finds it, or NIL."
-  (tuatara.io:sandbox-find-program *outlook-readpst-program*))
+  (sandbox-find-program *outlook-readpst-program*))
 
 (defun mailbox-preview-words (name size)
   "What the preview says of the mailbox NAME, of SIZE octets."
@@ -55,7 +55,7 @@ and other entries are passed over; at most LIMIT files, 64 folders deep."
   (let ((found '()) (count 0))
     (labels ((walk (relative depth)
                (let ((files '()) (folders '()))
-                 (dolist (entry (tuatara.io:directory-entries (tuatara.io:path-join root relative)))
+                 (dolist (entry (directory-entries (path-join root relative)))
                    (destructuring-bind (name kind size own &rest rest) entry
                      (declare (ignore rest))
                      (cond ((not (eq own kind)))                    ; a link, whatever it leads to: passed over
@@ -85,15 +85,15 @@ and other entries are passed over; at most LIMIT files, 64 folders deep."
 (a name with no ending, or .eml) read for its date, sender, subject and
 attachments counted; any other as it is named. A message larger than
 *OUTLOOK-LARGEST-FILE* is read for its headers alone."
-  (let ((type (tuatara.io:native-file-type name)))
+  (let ((type (native-file-type name)))
     (if (not (or (null type) (string-equal type "eml")))
         (make-mailbox-item :path path :subject name)
         (handler-case
-            (let* ((octets (tuatara.io:call-with-file
+            (let* ((octets (call-with-file
                             path (lambda (fd file size)
                                    (if (> size *outlook-largest-file*)
-                                       (tuatara.io:read-fd-start fd file size 65536)
-                                       (tuatara.io:read-fd-octets fd :path file :size-hint (1+ size))))))
+                                       (read-fd-start fd file size 65536)
+                                       (read-fd-octets fd :path file :size-hint (1+ size))))))
                    (part (mime-read octets))
                    (leaves (mime-leaves part))
                    (body (mime-body-part leaves)))
@@ -105,7 +105,7 @@ attachments counted; any other as it is named. A message larger than
 
 ;;; Reading it
 
-(defstruct (mailbox-job (:include tuatara.runtime:job) (:constructor make-mailbox-job (buffer path folder)) (:copier nil))
+(defstruct (mailbox-job (:include job) (:constructor make-mailbox-job (buffer path folder)) (:copier nil))
   "The mailbox at PATH being read for BUFFER, a job: first COPIED of SIZE
 octets of it copied for readpst; then readpst writing into FOLDER, FILES of
 OCTETS so far; then LISTED of TOTAL files read for the list.
@@ -115,21 +115,21 @@ how it went."
 
 (setf (documentation 'mailbox-job-p 'function) "True when OBJECT is a MAILBOX-JOB.")
 
-(tuatara.runtime:define-job-words mailbox-job
+(define-job-words mailbox-job
   :doing (cond ((mailbox-job-total job) "Listing the mailbox")
                ((mailbox-job-copied job) "Copying the mailbox")
                (t "Reading the mailbox"))
-  :description (format nil "Reading the mailbox ~a with readpst" (tuatara.io:native-file-name (mailbox-job-path job)))
+    :description (format nil "Reading the mailbox ~a with readpst" (native-file-name (mailbox-job-path job)))
   :verb "read the mailbox"
   :left-words "nothing listed")
 
-(defmethod tuatara.runtime:job-percent ((job mailbox-job))
+(defmethod job-percent ((job mailbox-job))
   "How far copying the mailbox or listing the messages has got; NIL while readpst writes them."
   (let ((total (mailbox-job-total job)))
-    (cond (total (tuatara.runtime:running-percent (mailbox-job-listed job) total))
-          ((mailbox-job-copied job) (tuatara.runtime:running-percent (mailbox-job-copied job) (max 1 (mailbox-job-size job)))))))
+    (cond (total (running-percent (mailbox-job-listed job) total))
+          ((mailbox-job-copied job) (running-percent (mailbox-job-copied job) (max 1 (mailbox-job-size job)))))))
 
-(defmethod tuatara.runtime:job-state-words ((job mailbox-job))
+(defmethod job-state-words ((job mailbox-job))
   "How far reading the mailbox has got: the per cent copied, the messages readpst has written, then the per cent listed."
   (if (or (mailbox-job-total job) (mailbox-job-copied job))
       (call-next-method)
@@ -140,16 +140,16 @@ how it went."
 the mailbox's access time, and return the copy's path: refused when the drive
 would keep less than 1 GB free, stopped when JOB is asked to stop."
   (let* ((copy (concatenate 'string (string-right-trim "/" (mailbox-job-folder job)) ".pst"))
-         (size (tuatara.io:stamp-size (tuatara.io:path-stamp (mailbox-job-path job))))
-         (free (ignore-errors (tuatara.io:free-bytes (tuatara.io:parent-path copy)))))
+         (size (stamp-size (path-stamp (mailbox-job-path job))))
+         (free (ignore-errors (free-bytes (parent-path copy)))))
     (when (and free (< free (+ size (expt 2 30))))
       (error "The drive of the cache directory has room for no copy of this mailbox (~a, and 1 GB to spare)" (octets-words size)))
     (setf (mailbox-job-size job) size (mailbox-job-copied job) 0)
-    (handler-bind ((error (lambda (e) (declare (ignore e)) (ignore-errors (tuatara.io:remove-file copy)))))
-      (unless (tuatara.io:copy-regular-file (mailbox-job-path job) copy :cancel (tuatara.runtime:job-cancel job)
-                                            :progress (lambda (done) (setf (mailbox-job-copied job) done)))
-        (ignore-errors (tuatara.io:remove-file copy))
-        (tuatara.runtime:job-check-stop)))
+    (handler-bind ((error (lambda (e) (declare (ignore e)) (ignore-errors (remove-file copy)))))
+      (unless (copy-regular-file (mailbox-job-path job) copy :cancel (job-cancel job)
+                                 :progress (lambda (done) (setf (mailbox-job-copied job) done)))
+        (ignore-errors (remove-file copy))
+        (job-check-stop)))
     (setf (mailbox-job-copied job) nil)
     copy))
 
@@ -162,16 +162,16 @@ how it went (SANDBOX-RUN's second value) and what it said."
   (let* ((folder (mailbox-job-folder job))
          (stop (list nil)) (full nil) (result nil)
          (arguments (append '("-e" "-b" "-q") (and *outlook-include-deleted* '("-D")) '("-o" "/tmp/out" "/tmp/mailbox.pst"))))
-    (tuatara.runtime:make-guarded-thread
+    (make-guarded-thread
      (lambda ()
        (unwind-protect
             (setf result (handler-case
                              (multiple-value-list
-                              (tuatara.io:sandbox-run *outlook-readpst-program* arguments
-                                                      :directories (list (cons copy "/tmp/mailbox.pst"))
-                                                      :writable (list (cons (string-right-trim "/" folder) "/tmp/out"))
-                                                      :seconds *outlook-mailbox-seconds* :memory (* 2 1024 1024 1024)
-                                                      :output-limit nil :file-limit *outlook-mailbox-space* :cancel stop))
+                              (sandbox-run *outlook-readpst-program* arguments
+                                           :directories (list (cons copy "/tmp/mailbox.pst"))
+                                           :writable (list (cons (string-right-trim "/" folder) "/tmp/out"))
+                                           :seconds *outlook-mailbox-seconds* :memory (* 2 1024 1024 1024)
+                                           :output-limit nil :file-limit *outlook-mailbox-space* :cancel stop))
                            (error (e) (list nil :failed (princ-to-string e)))))
          (unless result (setf result (list nil :failed "it ended unexpectedly")))))
      :name "tuatara readpst")
@@ -179,14 +179,14 @@ how it went (SANDBOX-RUN's second value) and what it said."
           do (sleep 1)
              (multiple-value-bind (files octets) (mailbox-written folder)
                (setf (mailbox-job-files job) files (mailbox-job-octets job) octets)
-               (let ((free (ignore-errors (tuatara.io:free-bytes folder))))
+            (let ((free (ignore-errors (free-bytes folder))))
                  (when (and (not full) (or (> octets *outlook-mailbox-space*) (and free (< free (expt 2 30)))))
                    (setf full (if (> octets *outlook-mailbox-space*)
                                   (format nil "readpst was stopped once it had written ~a (*outlook-mailbox-space*)" (octets-words octets))
                                   "readpst was stopped: the drive of the cache directory has less than 1 GB free")
                          (car stop) t))))
-             (when (car (tuatara.runtime:job-cancel job)) (setf (car stop) t)))
-    (tuatara.runtime:job-check-stop)
+          (when (car (job-cancel job)) (setf (car stop) t)))
+    (job-check-stop)
     (destructuring-bind (output outcome said) result
       (declare (ignore output))
       (when full (push full (mailbox-job-notes job)))
@@ -197,7 +197,7 @@ how it went (SANDBOX-RUN's second value) and what it said."
 \(MAILBOX-RUN-READPST) from a copy of the mailbox (MAILBOX-COPY), then each is read for the list (MAILBOX-LIST)."
   (multiple-value-bind (outcome said) (let ((copy (mailbox-copy job)))
                                         (unwind-protect (mailbox-run-readpst job copy)
-                                          (ignore-errors (tuatara.io:remove-file copy))))
+                                          (ignore-errors (remove-file copy))))
     (let ((folder (mailbox-job-folder job)))
       (case outcome
         (:done)
@@ -224,7 +224,7 @@ hold them."
           (loop for (relative . files) in folders
                 collect (cons (string-right-trim "/" relative)
                               (loop for (name) in files
-                                    collect (progn (tuatara.runtime:job-check-stop)
+                                    collect (progn (job-check-stop)
                                                    (incf (mailbox-job-listed job))
                                                    (mailbox-item-of (format nil "~a/~a~a" root relative name) name))))))))
 
@@ -238,8 +238,8 @@ then each folder and its items."
   (let* ((folders (mailbox-job-folders job))
          (count (reduce #'+ folders :key (lambda (f) (length (cdr f)))))
          (intro (list (cons (format nil "Outlook mailbox ~a, ~a: ~:d item~:p in ~:d folder~:p, read by readpst~:[~;, deleted items included~]~%"
-                                    (tuatara.io:native-file-name (mailbox-job-path job))
-                                    (octets-words (or (ignore-errors (tuatara.io:stamp-size (tuatara.io:path-stamp (mailbox-job-path job)))) 0))
+                                    (native-file-name (mailbox-job-path job))
+                                    (octets-words (or (ignore-errors (stamp-size (path-stamp (mailbox-job-path job)))) 0))
                                     count (length folders) *outlook-include-deleted*)
                             :heading)
                       (format nil "~a~%" (substitute-command-keys "\\<mailbox-mode>\\[mailbox-open-item] opens the item on the line, read only."))))
@@ -263,35 +263,35 @@ then each folder and its items."
       (render-pieces buffer (append before (nreverse pieces))
                      :point (+ first-line (if (rest entries) 1 0)) :entries (nreverse entries) :first-line first-line))))
 
-(defmethod tuatara.runtime:job-take-in ((job mailbox-job))
+(defmethod job-take-in ((job mailbox-job))
   "List what the mailbox held, or say why it could not be read."
   (show-reading-result job (mailbox-job-path job) (lambda (buffer) (mailbox-render buffer job))))
 
 (defun mailbox-buffer (native)
   "The buffer listing the mailbox at NATIVE: the one there is, else a new one,
 the mailbox read for it in the background (MAILBOX-WORK)."
-  (let ((name (tuatara.io:native-file-name native)))
-    (reading-buffer '*mailboxes* (lambda (b) (tuatara.buffer:buffer-local b 'mailbox-path)) native
+  (let ((name (native-file-name native)))
+    (reading-buffer '*mailboxes* (lambda (b) (buffer-local b 'mailbox-path)) native
                     (format nil "~a (mailbox)" name) (format nil "Reading ~a with readpst, shut in the sandbox...~%" name) 'mailbox-mode
                     (lambda (buffer)
                       ;; for you alone, in mailboxes/ in the cache directory
                       (let ((folder (new-private-folder (private-cache-directory "mailboxes/"))))
-                        (setf (tuatara.buffer:buffer-local buffer 'mailbox-path) native
-                              (tuatara.buffer:buffer-local buffer 'mailbox-folder) folder)
-                        (tuatara.runtime:start-job-thread (make-mailbox-job buffer native folder) #'mailbox-work :name "tuatara mailbox"))))))
+                        (setf (buffer-local buffer 'mailbox-path) native
+                              (buffer-local buffer 'mailbox-folder) folder)
+                        (start-job-thread (make-mailbox-job buffer native folder) #'mailbox-work :name "tuatara mailbox"))))))
 
 (defun mailbox-forget (buffer)
   "Kill-buffer function: when BUFFER lists a mailbox, delete the messages
 readpst wrote for it, in the background, once its job, stopped as the buffer
 goes, has ended."
-  (let ((folder (tuatara.buffer:buffer-local buffer 'mailbox-folder))
-        (job (find-if (lambda (job) (and (mailbox-job-p job) (eq buffer (tuatara.runtime:job-buffer job)))) tuatara.runtime:*jobs*)))
+  (let ((folder (buffer-local buffer 'mailbox-folder))
+        (job (find-if #'mailbox-job-p (jobs-of buffer))))
     (when folder
-      (setf (tuatara.buffer:buffer-local buffer 'mailbox-folder) nil)
-      (tuatara.runtime:make-guarded-thread
+      (setf (buffer-local buffer 'mailbox-folder) nil)
+      (make-guarded-thread
        (lambda ()
-         (loop while (and job (tuatara.runtime:job-running-p job)) do (sleep 0.2))
-         (ignore-errors (tuatara.io:delete-tree folder)))
+         (loop while (and job (job-running-p job)) do (sleep 0.2))
+         (ignore-errors (delete-tree folder)))
        :name "tuatara mailbox deleted"))))
 
 (defun mailbox-visit (path show)
@@ -304,7 +304,7 @@ saying how to get them. Returns the buffer, or NIL for a file of another kind."
                (file-view-can-draw-p native (mailbox-readpst)
                                      (format nil "readpst reads Outlook mailboxes, and is not installed (Fedora: sudo dnf install libpst; ~a)"
                                              *outlook-readpst-program*)))
-      (file-view-show native (remove-if-not #'live-buffer-p *mailboxes*) (lambda (b) (tuatara.buffer:buffer-local b 'mailbox-path))
+      (file-view-show native (remove-if-not #'live-buffer-p *mailboxes*) (lambda (b) (buffer-local b 'mailbox-path))
                       (lambda () (mailbox-buffer native)) show))))
 
 (define-command mailbox-open-item ()
@@ -313,7 +313,7 @@ only; a contact or an appointment as its text, safely."
   (let ((entry (list-entry-at)))
     (cond ((mailbox-item-p entry)
            (if (mailbox-item-message entry)
-               (show-buffer *editor* (mail-view-buffer (mailbox-item-path entry) :safe t :name (mailbox-item-subject entry)))
+               (show-buffer (mail-view-buffer (mailbox-item-path entry) :safe t :name (mailbox-item-subject entry)))
                (visit-path (mailbox-item-path entry) :safe t)))
           ((consp entry) (message "A folder of the mailbox: its items are on the lines under it"))
           (t (message "No item on this line")))))

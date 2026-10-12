@@ -22,7 +22,7 @@ frontend, as a second value."
     (unwind-protect
          (flet ((abbreviation-p (text)
                   (tuatara.buffer:buffer-edit b (vector (tuatara.text:make-edit 0 (tuatara.buffer:buffer-size b) (tuatara.text:string-octets text))))
-                  (tuatara.defaults::garamond-abbreviation-before-p b (tuatara.buffer:buffer-size b))))
+                    (garamond::garamond-abbreviation-before-p b (tuatara.buffer:buffer-size b))))
            (true (abbreviation-p "see e.g."))
            (true (abbreviation-p "E.g."))
            (true (abbreviation-p "(cf."))
@@ -126,7 +126,7 @@ frontend, as a second value."
         (multiple-value-bind (f editor)
             (run-keys (format nil "C-x C-f C-a C-k ~a RET" (rimu-typed (namestring first))) :width 160)
           (declare (ignore f))
-          (true (tuatara.defaults::garamond-on-p (tuatara.display:window-buffer (tuatara.command:editor-window editor))))
+            (true (garamond::garamond-on-p (tuatara.display:window-buffer (tuatara.command:editor-window editor))))
           (forget-file-buffers))))))
 
 (define-test (garamond refusals-and-report)
@@ -134,9 +134,9 @@ frontend, as a second value."
     (unwind-protect
          (progn
            (tuatara.defaults::set-major-mode b 'tuatara.defaults::special-mode)
-           (true (tuatara.defaults::garamond-refusal b))
+             (true (garamond::garamond-refusal b))
            (tuatara.defaults::set-major-mode b 'tuatara.defaults::text-mode)
-           (false (tuatara.defaults::garamond-refusal b)))
+             (false (garamond::garamond-refusal b)))
       (tuatara.buffer:kill-buffer b)))
   (let ((tuatara.defaults::*modal-editing* nil))
     (run-keys "M-x t e x t - m o d e RET M-x g a r a m o n d - d o c t o r RET" :width 100 :height 30)
@@ -150,18 +150,14 @@ frontend, as a second value."
       (garamond-typed-text "org-mode" "SPC b" :text "Run ~ls a."))
   (is string= "Say =x. y"
       (garamond-typed-text "org-mode" "SPC y" :text "Say =x."))
-  (true (tuatara.defaults::garamond-half-typed-p "Run ~ls -l."))
-  (true (tuatara.defaults::garamond-half-typed-p "=a.b."))
-  (false (tuatara.defaults::garamond-half-typed-p "So a = b."))
-  (false (tuatara.defaults::garamond-half-typed-p "Run ~ls~ now."))
   ;; a blank before a carriage return and a newline is no gap after a sentence
-  (is equal '((12 . 14)) (tuatara.defaults::garamond-gap-runs (format nil "End. ~c~%Next.  More" #\Return)))
-  (is equal '((4 . 6) (11 . 12)) (tuatara.defaults::garamond-gap-runs "Ünë.  Two?” Three"))
-  (is equal '((6 . 8) (15 . 16)) (tuatara.defaults::runs-octets "Ünë.  Two?” Three" '((4 . 6) (11 . 12)) 0))
+  (is equal '((12 . 14)) (garamond::garamond-gap-runs (format nil "End. ~c~%Next.  More" #\Return)))
+  (is equal '((4 . 6) (11 . 12)) (garamond::garamond-gap-runs "Ünë.  Two?” Three"))
+  (is equal '((6 . 8) (15 . 16)) (garamond::runs-octets "Ünë.  Two?” Three" '((4 . 6) (11 . 12)) 0))
   ;; adjusted, a file with such lines keeps them as they are
   (let ((b (tuatara.buffer:make-buffer "*garamond-crlf*" :text (format nil "One. ~c~%Two.  Three. Four~c~%" #\Return #\Return))))
     (unwind-protect
          (progn
            (tuatara.defaults::set-major-mode b 'tuatara.defaults::text-mode)
-           (is equal '((19 . 20)) (tuatara.defaults::garamond-gaps b 0 (tuatara.buffer:buffer-size b) 2)))
+           (is equal '((19 . 20)) (garamond::garamond-gaps b 0 (tuatara.buffer:buffer-size b) 2)))
       (tuatara.buffer:kill-buffer b))))

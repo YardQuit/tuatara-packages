@@ -3,7 +3,11 @@
 ;;;;
 ;;;; One line in the init file loads it: (load-package "outlook").
 
-(in-package #:tuatara-user)
+(defpackage #:outlook
+  (:use #:cl #:tuatara)
+  (:documentation "Outlook items, saved mail and mailboxes, read safely."))
+
+(in-package #:outlook)
 
 (dolist (file '("mail" "cfb" "mime" "msg" "view" "mailbox" "install"))
   (load-package-file (format nil "~a.lisp" file)))

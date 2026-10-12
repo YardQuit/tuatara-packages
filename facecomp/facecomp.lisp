@@ -22,56 +22,54 @@
 ;;;; editor's cache, and run from there read only: no run can change it for
 ;;;; the next. The copies go when it is done; the photos are only read.
 
-(in-package #:tuatara.defaults)
+(defpackage #:facecomp
+  (:use #:cl #:tuatara)
+  (:documentation "Faces compared across photos by the facecomp program: M-x facecomp-compare."))
+
+(in-package #:facecomp)
 
 ;;; Settings
 
-(defvar tuatara-user::*facecomp-program* "facecomp"
+(define-package-setting *facecomp-program* "facecomp"
   "The facecomp program: a name looked for in the system's own folders of
 programs, or the full path of one anywhere, an AppImage too
 \(\"~/Applications/facecomp-x86_64.AppImage\").")
 
-(defvar tuatara-user::*facecomp-detector-model* nil
+(define-package-setting *facecomp-detector-model* nil
   "The face detector's model file, OpenCV Zoo's face_detection_yunet_2023mar.onnx;
 NIL for the one facecomp knows itself, as an AppImage of it does.")
 
-(defvar tuatara-user::*facecomp-encoder-model* nil
+(define-package-setting *facecomp-encoder-model* nil
   "The SFace recognition model, OpenCV Zoo's face_recognition_sface_2021dec.onnx,
 used while *FACECOMP-BACKEND* is SFace; NIL for the one facecomp knows itself.")
 
-(defvar tuatara-user::*facecomp-arcface-model* nil
+(define-package-setting *facecomp-arcface-model* nil
   "The ArcFace recognition model, ONNX Model Zoo's arcfaceresnet100-11-int8.onnx,
 used while *FACECOMP-BACKEND* is :ARCFACE; NIL for the one facecomp knows itself.")
 
-(defvar tuatara-user::*facecomp-backend* nil
+(define-package-setting *facecomp-backend* nil
   "The model faces are made numbers with: :SFACE (128 numbers a face) or
 :ARCFACE (512, a little more accurate); NIL for facecomp's own choice, SFace.
 Leave *FACECOMP-THRESHOLD* NIL with it, so that the cutoff of the model in use
 is taken: the two models' cutoffs differ, 0.316 and 0.239.")
 
-(defvar tuatara-user::*facecomp-threshold* nil
+(define-package-setting *facecomp-threshold* nil
   "The similarity, above 0 and below 1, at or above which two faces count as
 one person's; NIL, as recommended, for the cutoff of the model in use
 \(*FACECOMP-BACKEND*). A cutoff of the other model is not refused: it quietly
 scores every comparison wrong.")
 
-(defvar tuatara-user::*facecomp-max* nil
+(define-package-setting *facecomp-max* nil
   "The most photos the report lists, the closest first; NIL for all of them.")
 
-(defvar tuatara-user::*facecomp-detection-confidence* nil
+(define-package-setting *facecomp-detection-confidence* nil
   "How sure the detector must be, above 0 and at most 1, for a face to count:
 lower finds faces in hard photos, higher keeps out what is no face (0.8 never
 took a non-face in facecomp's measurements); NIL for facecomp's own, 0.7.
 \\[universal-argument] \\[facecomp-compare] asks for one run's.")
 
-(defvar tuatara-user::*facecomp-seconds* 600
+(define-package-setting *facecomp-seconds* 600
   "The most seconds one comparison may take before facecomp is stopped.")
-
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (export '(tuatara-user::*facecomp-program* tuatara-user::*facecomp-detector-model* tuatara-user::*facecomp-encoder-model*
-            tuatara-user::*facecomp-arcface-model* tuatara-user::*facecomp-backend* tuatara-user::*facecomp-threshold*
-            tuatara-user::*facecomp-max* tuatara-user::*facecomp-detection-confidence* tuatara-user::*facecomp-seconds*)
-          :tuatara-user))
 
 ;;; The program and its arguments
 
@@ -83,18 +81,18 @@ took a non-face in facecomp's measurements); NIL for facecomp's own, 0.7.
   "Signal an error naming the setting when one is set to what facecomp would
 refuse: *FACECOMP-THRESHOLD*, CONFIDENCE (the run's detection confidence),
 *FACECOMP-MAX*, *FACECOMP-BACKEND*, or a model that is not there."
-  (let ((threshold tuatara-user:*facecomp-threshold*) (most tuatara-user:*facecomp-max*))
+  (let ((threshold *facecomp-threshold*) (most *facecomp-max*))
     (when (and threshold (not (and (realp threshold) (< 0 threshold 1))))
       (error "*facecomp-threshold* must be above 0 and below 1, not ~s" threshold))
     (when (and confidence (not (and (realp confidence) (< 0 confidence) (<= confidence 1))))
       (error "The detection confidence must be above 0 and at most 1, not ~s" confidence))
     (when (and most (not (and (integerp most) (plusp most))))
       (error "*facecomp-max* must be a whole number above 0, not ~s" most))
-    (unless (member tuatara-user:*facecomp-backend* '(nil :sface :arcface))
-      (error "*facecomp-backend* must be :sface, :arcface or nil, not ~s" tuatara-user:*facecomp-backend*))
-    (dolist (setting '(tuatara-user::*facecomp-detector-model* tuatara-user::*facecomp-encoder-model* tuatara-user::*facecomp-arcface-model*))
+    (unless (member *facecomp-backend* '(nil :sface :arcface))
+      (error "*facecomp-backend* must be :sface, :arcface or nil, not ~s" *facecomp-backend*))
+    (dolist (setting '(*facecomp-detector-model* *facecomp-encoder-model* *facecomp-arcface-model*))
       (let ((file (symbol-value setting)))
-        (when (and file (not (eq :regular (tuatara.io:path-kind (tuatara.io:native (tuatara.io:expand-path file))))))
+        (when (and file (not (eq :regular (path-kind (native (expand-path file))))))
           (error "~(~a~) names ~a, which is not there" (symbol-name setting) file))))))
 
 (defun facecomp-models ()
@@ -104,15 +102,15 @@ The recognition model is the one *FACECOMP-BACKEND* uses."
   (let ((arguments '()) (files '()) (n 0))
     (flet ((model (flag file)
              (when file
-               (let* ((path (tuatara.io:native (tuatara.io:expand-path file)))
-                      (where (format nil "/tmp/models/~d/~a" (incf n) (tuatara.io:native-file-name path))))
+               (let* ((path (native (expand-path file)))
+                      (where (format nil "/tmp/models/~d/~a" (incf n) (native-file-name path))))
                  (push (cons path where) files)
                  (setf arguments (append arguments (list flag where)))))))
-      (model "--detector-model" tuatara-user:*facecomp-detector-model*)
+      (model "--detector-model" *facecomp-detector-model*)
       ;; never the other model's: its numbers would be compared against the wrong cutoff
-      (model "--encoder-model" (if (eq tuatara-user:*facecomp-backend* :arcface)
-                                   tuatara-user:*facecomp-arcface-model*
-                                   tuatara-user:*facecomp-encoder-model*)))
+      (model "--encoder-model" (if (eq *facecomp-backend* :arcface)
+                                   *facecomp-arcface-model*
+                                   *facecomp-encoder-model*)))
     (values arguments files)))
 
 (defun facecomp-arguments (masters photos confidence models)
@@ -121,16 +119,16 @@ the sandbox shows them, with MODELS (FACECOMP-MODELS' arguments), CONFIDENCE
 for the run and the settings."
   (append (list "--master") masters
           models
-          (and tuatara-user:*facecomp-backend* (list "--backend" (string-downcase (symbol-name tuatara-user:*facecomp-backend*))))
-          (and tuatara-user:*facecomp-threshold* (list "--threshold" (facecomp-number tuatara-user:*facecomp-threshold*)))
+          (and *facecomp-backend* (list "--backend" (string-downcase (symbol-name *facecomp-backend*))))
+          (and *facecomp-threshold* (list "--threshold" (facecomp-number *facecomp-threshold*)))
           (and confidence (list "--detection-confidence" (facecomp-number confidence)))
-          (and tuatara-user:*facecomp-max* (list "--max" (princ-to-string tuatara-user:*facecomp-max*)))
+          (and *facecomp-max* (list "--max" (princ-to-string *facecomp-max*)))
           (list "--json" "--slave")
           photos))
 
 ;;; A comparison, in the background
 
-(defstruct (facecomp-job (:include tuatara.runtime:job) (:constructor make-facecomp-job (buffer masters photos confidence)) (:copier nil))
+(defstruct (facecomp-job (:include job) (:constructor make-facecomp-job (buffer masters photos confidence)) (:copier nil))
   "MASTERS (photos of one person) being compared with PHOTOS by facecomp,
 with CONFIDENCE for this run or NIL, a job for BUFFER: REPORT, what facecomp
 said, read JSON; NAMES, the table of its copies' names (RUN-ON-COPIES);
@@ -140,33 +138,33 @@ why there is no report."
 
 (setf (documentation 'facecomp-job-p 'function) "True when OBJECT is a FACECOMP-JOB.")
 
-(tuatara.runtime:define-job-words facecomp-job
+(define-job-words facecomp-job
   :doing "Comparing faces"
   :description (format nil "Comparing ~d photo~:p with ~a" (length (facecomp-job-photos job))
-                       (tuatara.io:native-file-name (first (facecomp-job-masters job))))
+                         (native-file-name (first (facecomp-job-masters job))))
   :verb "compare the faces"
   :left-words "nothing compared")
 
 (defun facecomp-work (job)
   "What a comparison does: runs facecomp shut in on copies of the photos
 \(RUN-ON-COPIES), and keeps its report, or why there is none."
-  (let ((program (or (user-program-path tuatara-user:*facecomp-program*)
+  (let ((program (or (user-program-path *facecomp-program*)
                      (error "facecomp is not there: install it, or give its path in *facecomp-program*"))))
     (multiple-value-bind (models model-files) (facecomp-models)
       (multiple-value-bind (output outcome said names)
           (run-on-copies program (list (cons "master" (facecomp-job-masters job)) (cons "photo" (facecomp-job-photos job)))
                          (lambda (masters photos) (facecomp-arguments masters photos (facecomp-job-confidence job) models))
                          :directories model-files
-                         :seconds tuatara-user:*facecomp-seconds* :memory (* 4 1024 1024 1024)
-                         :cancel (tuatara.runtime:job-cancel job))
-        (tuatara.runtime:job-check-stop)
+                         :seconds *facecomp-seconds* :memory (* 4 1024 1024 1024)
+                         :cancel (job-cancel job))
+        (job-check-stop)
         (setf (facecomp-job-names job) names)
         (let ((report (and (eq outcome :done) (copies-output-json output))))
           (if report
               (setf (facecomp-job-report job) report
                     (facecomp-job-shown job) (multiple-value-list (facecomp-report-text report names)))
               (setf (facecomp-job-failure job)
-                    (run-on-copies-failure "facecomp" outcome said names 'tuatara-user:*facecomp-seconds*))))))))
+                    (run-on-copies-failure "facecomp" outcome said names '*facecomp-seconds*))))))))
 
 ;;; The report
 
@@ -198,20 +196,20 @@ its spans, each (START END FACE), and its buttons, each (START END ACTION),
 in octets."
   (let ((out (make-string-output-stream)) (at 0) (spans '()) (buttons '()))
     (labels ((put (text &optional face)
-               (let ((octets (length (tuatara.text:string-octets text))))
+               (let ((octets (length (string-octets text))))
                  (when face (push (list at (+ at octets) face) spans))
                  (write-string text out)
                  (incf at octets)))
              (path (copy) (gethash copy names copy))
-             (items (key) (coerce (tuatara.text:json-items report key) 'list))
+             (items (key) (coerce (json-items report key) 'list))
              (photo (copy)
                ;; the photo's own path, a button opening it safely
                (let* ((file (path copy)) (start at))
                  (put (abbreviated-path file) :link)
                  (push (list start at (lambda () (facecomp-show-photo file))) buttons))))
       (let ((masters (items "masters"))
-            (threshold (tuatara.text:json-get report "threshold"))
-            (agreement (tuatara.text:json-get report "enrolment_agreement")))
+            (threshold (json-get report "threshold"))
+            (agreement (json-get report "enrolment_agreement")))
         (if (rest masters)
             (put (format nil "Masters: ~d photos of one person, averaged into one template~%" (length masters)))
             (put "Master: "))
@@ -224,7 +222,7 @@ in octets."
           (when (and (realp threshold) (< agreement threshold))
             (put (format nil "  Below the ~,3f cutoff: these may not all be the same person~%" threshold) :warning)))
         (put (format nil "Model: ~@[~a~]~@[, ~d numbers a face~]~@[, cutoff ~,3f~]~%"
-                     (tuatara.text:json-text report "backend") (tuatara.text:json-integer report "embedding_dimensions")
+                     (json-text report "backend") (json-integer report "embedding_dimensions")
                      (and (realp threshold) threshold))))
       (let ((errors (items "errors")))
         (when errors
@@ -236,28 +234,28 @@ in octets."
         (if (null results)
             (put (format nil "No photo could be compared~:[~;: see why above~].~%" (items "errors")))
             (dolist (r results)
-              (let ((percent (tuatara.text:json-get r "match_percent"))
-                    (similarity (tuatara.text:json-get r "similarity"))
-                    (faces (tuatara.text:json-integer r "faces_detected")))
-                (photo (tuatara.text:json-text r "photo"))
+              (let ((percent (json-get r "match_percent"))
+                    (similarity (json-get r "similarity"))
+                    (faces (json-integer r "faces_detected")))
+                (photo (json-text r "photo"))
                 (put (format nil "~%  "))
                 (when (realp percent)
-                  (put (format nil "~,1f% match, ~a" percent (or (tuatara.text:json-text r "confidence") "")) (facecomp-percent-face percent)))
+                  (put (format nil "~,1f% match, ~a" percent (or (json-text r "confidence") "")) (facecomp-percent-face percent)))
                 (put (format nil "~@[   similarity ~,4f~]~@[   the best of ~d faces in the photo~]~2%"
                              (and (realp similarity) similarity) (and faces (> faces 1) faces))))))))
     (values (get-output-stream-string out) (nreverse spans) (nreverse buttons))))
 
-(defmethod tuatara.runtime:job-take-in ((job facecomp-job))
+(defmethod job-take-in ((job facecomp-job))
   "Show facecomp's report in *facecomp*, or say why there is none."
   (cond ((facecomp-job-report job)
          (let ((buffer (buffer-in-mode "*facecomp*" 'facecomp-mode)))
            (destructuring-bind (text spans buttons) (facecomp-job-shown job)
              (set-made-text buffer text :spans spans :buttons buttons))
-           (setf (tuatara.buffer:buffer-point buffer) 0)
+           (setf (buffer-point buffer) 0)
            (display-buffer buffer)
-           (message "Faces compared: ~d photo~:p" (length (tuatara.text:json-items (facecomp-job-report job) "results")))))
+           (message "Faces compared: ~d photo~:p" (length (json-items (facecomp-job-report job) "results")))))
         ((facecomp-job-failure job) (message "~a" (facecomp-job-failure job)))
-        (t (message "~a" (tuatara.runtime:job-ending-words job)))))
+        (t (message "~a" (job-ending-words job)))))
 
 ;;; Choosing the photos
 
@@ -267,8 +265,8 @@ refused when it is no file."
   (let* ((typed (if directory
                     (read-path prompt :initial (abbreviated-path directory))
                     (read-file-path prompt)))
-         (path (and typed (plusp (length typed)) (tuatara.io:native (tuatara.io:expand-path typed)))))
-    (unless (and path (eq :regular (tuatara.io:path-kind path)))
+         (path (and typed (plusp (length typed)) (native (expand-path typed)))))
+    (unless (and path (eq :regular (path-kind path)))
       (error "~a is no file" (or typed "Nothing")))
     path))
 
@@ -278,7 +276,7 @@ when given, then, while QUESTION (given how many so far) is answered yes,
 another with NTH-PROMPT (given its number), from DIRECTORY or the first one's
 folder. Their full paths, in order."
   (let* ((first (facecomp-read-photo first-prompt directory))
-         (directory (or directory (tuatara.io:parent-path first)))
+         (directory (or directory (parent-path first)))
          (photos (list first)))
     (loop for n from 1
           while (yes-or-no-p* (format nil question n))
@@ -289,7 +287,7 @@ folder. Their full paths, in order."
   "Ask which of the files MARKED are master photos, their names separated by
 commas, the first offered; the rest are the photos compared. Two values: the
 masters and the photos."
-  (let* ((names (mapcar #'tuatara.io:native-file-name marked))
+  (let* ((names (mapcar #'native-file-name marked))
          (typed (read-string (format nil "Master photos of the ~d marked, separated by commas: " (length marked))
                              :initial (first names)))
          (chosen (remove "" (mapcar (lambda (s) (string-trim " " s)) (uiop:split-string typed :separator ",")) :test #'string=))
@@ -320,7 +318,7 @@ the background; the photos are only read."
   (let* ((buffer (current-buffer))
          ;; the photos marked in the directory shown, not those kept marked elsewhere
          (marked (rimu-chosen-paths buffer :files-only t :here-only t))
-         (confidence-asked (editor-prefix-argument *editor*)))
+         (confidence-asked (prefix-argument)))
     (multiple-value-bind (masters photos)
         (if (>= (length marked) 2)
             (facecomp-choose-masters marked)
@@ -328,21 +326,21 @@ the background; the photos are only read."
             (let ((masters (facecomp-read-several "Master photo: " "Add another photo of the same person (~d so far)?"
                                                   "Master photo ~d: ")))
               (values masters (facecomp-read-several "Photo to compare: " "Add another photo to compare (~d so far)?"
-                                                     "Photo ~d: " (tuatara.io:parent-path (first masters))))))
-      (let ((confidence (if confidence-asked (facecomp-read-confidence) tuatara-user:*facecomp-detection-confidence*)))
+                                                     "Photo ~d: " (parent-path (first masters))))))
+      (let ((confidence (if confidence-asked (facecomp-read-confidence) *facecomp-detection-confidence*)))
         (cond ((null photos) (message "No photo to compare with the master"))
-              ((null (user-program-path tuatara-user:*facecomp-program*))
+              ((null (user-program-path *facecomp-program*))
                (message "facecomp is not there: install it, or give its path in *facecomp-program*"))
               (t (facecomp-check-settings confidence)
-                 (tuatara.runtime:start-job-thread (make-facecomp-job buffer masters photos confidence) #'facecomp-work
-                                                   :name "tuatara facecomp")
-                 (message "Comparing ~d photo~:p with ~a..." (length photos) (tuatara.io:native-file-name (first masters)))))))))
+                 (start-job-thread (make-facecomp-job buffer masters photos confidence) #'facecomp-work
+                                   :name "tuatara facecomp")
+                 (message "Comparing ~d photo~:p with ~a..." (length photos) (native-file-name (first masters)))))))))
 
 ;;; Loading
 
 (defun facecomp-health-words ()
   "What compares faces here, as \\[check-health] says it."
-  (let ((program (user-program-path tuatara-user:*facecomp-program*)))
+  (let ((program (user-program-path *facecomp-program*)))
     (format nil "Faces in photos compared by ~:[none: install facecomp, or give its path in *facecomp-program*~;~:*~a, shut in~]"
             (and program (abbreviated-path program)))))
 

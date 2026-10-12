@@ -48,7 +48,7 @@ no arguments, gives true, or TRIES turns have gone."
 
 (defun facematch-done ()
   "A turn waiting, without holding up the editor, until no comparison of faces runs."
-  (waiting-until (lambda () (not (find-if #'tuatara.defaults::facematch-job-p tuatara.runtime:*jobs*)))))
+  (waiting-until (lambda () (not (find-if #'facematch::facematch-job-p tuatara.runtime:*jobs*)))))
 
 (define-test (facematch marked-in-rimu)
   (with-test-directory (dir)
@@ -136,11 +136,11 @@ no arguments, gives true, or TRIES turns have gone."
   ;; the engine's arguments: each master, the run's confidence, then the candidates
   (is equal '("--master" "/tmp/files/master-1.jpg" "--master" "/tmp/files/master-2.png" "--detection-confidence" "0.8000"
               "--json" "--candidate" "/tmp/files/candidate-1.jpg")
-      (tuatara.defaults::facematch-arguments '("/tmp/files/master-1.jpg" "/tmp/files/master-2.png") '("/tmp/files/candidate-1.jpg") 0.8))
+        (facematch::facematch-arguments '("/tmp/files/master-1.jpg" "/tmp/files/master-2.png") '("/tmp/files/candidate-1.jpg") 0.8))
   ;; the ODNI's words coloured by how probable
-  (is eq :info (tuatara.defaults::facematch-label-face 97.2))
-  (is eq :warning (tuatara.defaults::facematch-label-face 50))
-  (is eq :error (tuatara.defaults::facematch-label-face 3.1)))
+  (is eq :info (facematch::facematch-label-face 97.2))
+  (is eq :warning (facematch::facematch-label-face 50))
+  (is eq :error (facematch::facematch-label-face 3.1)))
 
 (define-test (facematch ranking-read)
   ;; the masters first, then the candidates ranked, one not compared after them with why, each once
@@ -151,7 +151,7 @@ no arguments, gives true, or TRIES turns have gone."
     (setf (gethash "/tmp/files/master-1.jpg" names) "/case/alice.jpg"
           (gethash "/tmp/files/candidate-1.png" names) "/case/crowd.png"
           (gethash "/tmp/files/candidate-2.jpg" names) "/case/zed.jpg")
-    (multiple-value-bind (ranking groups) (tuatara.defaults::facematch-ranking report names)
+      (multiple-value-bind (ranking groups) (facematch::facematch-ranking report names)
       (is equal '(("/case/alice.jpg") ("/case/zed.jpg" "/case/crowd.png")) groups)
       (is string= "not compared: still none" (car (gethash "/case/crowd.png" ranking)))
       (is string= "not compared: two faces" (car (gethash "/case/alice.jpg" ranking)))

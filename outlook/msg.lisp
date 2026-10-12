@@ -9,7 +9,7 @@
 ;;;; item itself, a storage within, read as one to a depth. Named properties
 ;;;; (those numbered from 0x8000) are left out.
 
-(in-package #:tuatara.defaults)
+(in-package #:outlook)
 
 (defun msg-properties (cfb entry header)
   "The properties of the storage ENTRY of CFB, an item, a recipient or an
@@ -146,7 +146,7 @@ note which of them the item holds."
                           (html-text (if (stringp (cdr html))
                                          (cdr html)
                                          (let* ((octets (cdr html))
-                                                (head (tuatara.text:octets-latin-1 octets :end (min 2048 (length octets))))
+                                                (head (octets-latin-1 octets :end (min 2048 (length octets))))
                                                 (charset (multiple-value-bind (m g) (cl-ppcre:scan-to-strings "(?i)charset\\s*=\\s*[\"']?([-\\w:.]+)" head)
                                                            (and m (aref g 0)))))
                                            (mail-decode octets (or charset (mail-codepage-charset (msg-value properties #x3FDE)) "utf-8")))))

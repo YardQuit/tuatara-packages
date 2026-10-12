@@ -46,7 +46,20 @@ to read. Each package's settings are in its help (=C-h v=) once it is loaded.
 * Working on them
 
 Each package is a folder: =NAME/NAME.lisp= is its entry, loading its other
-files with =load-package-file=, and =NAME/test.lisp= holds its tests.
+files with =load-package-file=, and =NAME/test.lisp= holds its tests. Each has
+a Lisp package of its own that uses Tuatara's API, the names the package
+=tuatara= exports (Tuatara's =lisp/api.lisp=), and nothing else of Tuatara's:
+
+#+begin_src lisp
+(defpackage #:garamond
+  (:use #:cl #:tuatara))
+#+end_src
+
+Positions are octets from 0 into a buffer's text, as Tuatara's core counts
+them. A setting is made with =define-package-setting=, its name beginning with
+the package's (=*garamond-mode-line*=), so that an init file sets it by that
+name as it sets Tuatara's own. =tools/test.sh= fails a package that uses a
+name outside the API.
 
 #+begin_example
 tools/test.sh      # every package's tests
