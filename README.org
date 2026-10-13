@@ -38,7 +38,7 @@ load each package by its name, its settings after =:config=:
 #+begin_example
 (package-source "yardquit" "https://github.com/yardquit/tuatara-packages")
 ;; or a copy on your disk:
-;; (package-source "yardquit" "~/Projects/public/yardquit/tuatara-packages/")
+;; (package-source "yardquit" "~/path/tuatara-packages/")
 
 (load-package "outlook" :source "yardquit"
   :config
