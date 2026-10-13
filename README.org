@@ -20,6 +20,12 @@ everyone needs, and none is part of the editor.
   probability (calibrated on LFW) and the ODNI's words for it. Its engine,
   InsightFace with AuraFace-v1 and YuNet, is built into one AppImage
   (=facematch/engine/=) and run shut in the sandbox.
+- =palimpsest= :: a PDF taken apart into every save it holds, from the
+  original to the latest edit, and searched for every sign of editing or
+  forgery examiners know, each with its evidence: read from the file's
+  octets alone, nothing in it run, the file never changed. Each save is
+  written out as a PDF of its own with a log of how to find its signs again
+  by hand.
 - =facecomp= :: faces in photos compared with a master photo's by the
   facecomp program, shut in the sandbox on copies of the photos: a match,
   a confidence label and the similarity for each.
@@ -86,6 +92,9 @@ English, one way for each kind of thing.
   Outlook item; mailboxes are read by readpst, from libpst.
 - kitty, by Kovid Goyal :: the program the kitty package drives, by its remote
   control.
+- ISO 32000 :: how palimpsest reads a PDF; the shadow attacks it looks for
+  were described by Christian Mainka, Vladislav Mladenov and Simon Rohlmann
+  (Ruhr University Bochum).
 
 * License
 
