@@ -148,8 +148,14 @@ steps to find them, as two values."
 ;;; Words of a revision
 
 (defun revision-name (revision)
-  "REVISION in words: revision 1 (the original), revision 3."
-  (format nil "revision ~d~:[~; (the original)~]" (1+ (revision-index revision)) (zerop (revision-index revision))))
+  "REVISION in words: revision 1 (the original), revision 2, revision 3 (the
+current file), the last save being the file as it is now."
+  (format nil "revision ~d~a" (1+ (revision-index revision))
+          (let ((original (zerop (revision-index revision))) (latest (revision-latest revision)))
+            (cond ((and original latest) " (the original, the current file)")
+                  (original " (the original)")
+                  (latest " (the current file)")
+                  (t "")))))
 
 (defun info-of (pdf revision)
   "REVISION's document information, as two values: its dictionary (or NIL) and its object number."

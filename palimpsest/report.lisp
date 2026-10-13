@@ -163,7 +163,7 @@ revision before. The same file gives the same log but for its date line."
          (before (and (> k 1) (aref (pdf-revisions pdf) (- k 2))))
          (account (nth (revision-index revision) (analysis-accounts analysis))))
     (with-output-to-string (s)
-      (format s "Palimpsest log of revision ~d of ~a~%~a~%~%" k (analysis-name analysis) (make-string 60 :initial-element #\=))
+      (format s "Palimpsest log of ~a of ~a~%~a~%~%" (revision-name revision) (analysis-name analysis) (make-string 60 :initial-element #\=))
       (format s "Source file:  ~a~%Size:         ~:d octets (~a)~%SHA-256:      ~a~%" (analysis-name analysis) (analysis-size analysis)
               (hex-offset (analysis-size analysis)) (or (analysis-sha256 analysis) "(could not be summed)"))
       (format s "Written:      ~a~%" (format-time "%F %T %z" (get-universal-time)))

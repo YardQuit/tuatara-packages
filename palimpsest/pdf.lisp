@@ -135,11 +135,12 @@ CHANGED, SAME and FREED, the object numbers it adds, writes with a new body,
 writes again unchanged and frees; PAGES, its pages (PAGE), read on asking;
 ROLES, what each object is to the document as it then stood (read on
 asking); LINEARISED, true for the first save of a file prepared for the web;
+LATEST, true for the last save, the file as it is now;
 STARTXREF-AT, where its startxref keyword is, and STARTXREF, the offset it
 names; TRAILER-AT, where its trailer is (its trailer keyword, or its
 cross-reference stream's object)."
   index start end eof xref-at (xref-kind :none) trailer prev startxref-at startxref trailer-at (entries (make-hash-table)) (problems '())
-  (added '()) (changed '()) (same '()) (freed '()) (pages :unread) (roles nil) linearised)
+  (added '()) (changed '()) (same '()) (freed '()) (pages :unread) (roles nil) linearised latest)
 
 (setf (documentation 'revision-p 'function) "True when OBJECT is a REVISION.")
 
@@ -785,7 +786,8 @@ number from 0 to 1 as it goes."
           (setf revisions (cons (merge-revisions (first revisions) (second revisions)) (cddr revisions))))
         (setf (pdf-revisions pdf) (coerce revisions 'vector))
         (loop for revision across (pdf-revisions pdf) for k from 0
-              do (setf (revision-index revision) k)))
+              do (setf (revision-index revision) k
+                       (revision-latest revision) (= k (1- (length (pdf-revisions pdf)))))))
       (setf (pdf-encrypted pdf) (some (lambda (r) (dget (revision-trailer r) "/Encrypt")) (pdf-revisions pdf)))
       (loop for revision across (pdf-revisions pdf)
             do (job-check-stop)

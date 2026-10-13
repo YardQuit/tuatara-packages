@@ -406,7 +406,7 @@ xmp:CreateDate='2020-03-01T09:00:00+13:00' xmp:CreatorTool='Kea Writer' xmpMM:Do
             (let ((text (tuatara.buffer:buffer-string buffer)))
               (pal-has text "Palimpsest: invoice.pdf")
               (pal-has text "Signs worth a look, none of them strong.")
-              (pal-has text "** Revision 2: 0x")
+              (pal-has text "** Revision 2 (the current file): 0x")
               (pal-has text "revision-2.pdf  its log revision-2.log")
               (pal-has text "+ Total: 900"))
             (true (tuatara.buffer:buffer-local buffer :buttons))
