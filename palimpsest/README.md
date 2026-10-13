@@ -104,13 +104,12 @@ saved, and closing the report no longer asks.
 
 The `revision-N.pdf` links open the report's own copies, to look at; they go
 with the report. To hand one version to someone else, `w` writes it wherever
-you say (offered as `NAME-revision-N.pdf`), with its log beside it as
+you say (offered beside the PDF examined as `NAME-revision-N.pdf`), with its log beside it as
 `NAME-revision-N.log`, each copy's SHA-256 checked, and opens it. Which
 revision: the one whose part of the report (under `* Revisions`) the cursor
 is in; in a revision you opened from the report, that one; elsewhere in the
-report it asks, offering the one before the latest. The same refusals hold:
-never beside the evidence, never in the package's folder, nothing written
-over. The PDF written is the file as it stood after that save, so palimpsest
+report it asks, offering the one before the latest. The PDF examined is
+never changed; nothing is written over, nor into the package's folder. The PDF written is the file as it stood after that save, so palimpsest
 run on it finds the saves up to it.
 
 ## What each finding means

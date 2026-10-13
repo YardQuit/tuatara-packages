@@ -512,7 +512,10 @@ xmp:CreateDate='2020-03-01T09:00:00+13:00' xmp:CreatorTool='Kea Writer' xmpMM:Do
           (is equalp (subseq octets 0 first-end) (tuatara.io:file-octets target))
           (pal-has (uiop:read-file-string (concatenate 'string out "invoice-revision-1.log")) "Palimpsest log of revision 1")
           (pal-has (palimpsest::revision-refusal analysis target) "there already")
-          (pal-has (palimpsest::revision-refusal analysis (namestring (merge-pathnames "beside.pdf" dir))) "beside the evidence")
+          ;; beside the PDF examined it may go, the PDF itself untouched
+          (false (palimpsest::revision-refusal analysis (namestring (merge-pathnames "invoice-revision-1.pdf" dir))))
+          (true (palimpsest::write-revision analysis 1 (namestring (merge-pathnames "invoice-revision-1.pdf" dir))))
+          (is equalp octets (tuatara.io:file-octets path))
           ;; the version written holds one save: nothing before it
           (let ((again (palimpsest::make-palimpsest-job nil target (tuatara.defaults::new-private-folder (tuatara.defaults::private-cache-directory "palimpsest/")))))
             (palimpsest::examine again)

@@ -552,10 +552,9 @@ revision, or it could not be written."
 (defun revision-refusal (analysis target)
   "Why a revision cannot be written as TARGET, a PDF's native name, in words;
 NIL when it can."
+  (declare (ignore analysis))
   (let ((folder (parent-path target)) (log (log-beside target)))
-    (cond ((string= (folder-name folder) (folder-name (parent-path (analysis-path analysis))))
-           "it is the folder of the PDF examined: nothing is written beside the evidence")
-          ((inside-folder-p folder (private-cache-directory "palimpsest/"))
+    (cond ((inside-folder-p folder (private-cache-directory "palimpsest/"))
            "it is within palimpsest's own folder in the cache, which is cleared")
           ((path-kind target :follow nil) (format nil "~a is there already: nothing is written over" (native-file-name target)))
           ((path-kind log :follow nil) (format nil "~a is there already: nothing is written over" (native-file-name log))))))
@@ -618,9 +617,10 @@ in a revision opened from a report, that report and that revision's number."
   "Write a revision of the PDF the report is on as a PDF of its own, to show
 to others, its log beside it: the revision whose part of the report point is
 in, or the revision shown, when this is a revision opened from the report;
-else asked for, the one before the latest offered. Asked where, never beside
-the evidence nor in the package's own folder, nothing written over; each
-copy's SHA-256 checked, and the PDF opened when it is written. That PDF is the
+else asked for, the one before the latest offered. Asked where, beside the
+PDF examined offered (the PDF itself never changed), never in the package's
+own folder, nothing written over; each copy's SHA-256 checked, and the PDF
+opened when it is written. That PDF is the
 file as it stood after that save: \\[palimpsest] on it finds the saves before."
   (multiple-value-bind (report meant) (revision-meant)
     (let* ((analysis (and report (buffer-local report 'analysis)))
@@ -633,7 +633,7 @@ file as it stood after that save: \\[palimpsest] on it finds the saves before."
                         (message "Revision ~d of ~a could not be written out, so it cannot be copied" number (analysis-name analysis)))
                        (t (let* ((name (analysis-name analysis))
                                  (stem (if (uiop:string-suffix-p (string-downcase name) ".pdf") (subseq name 0 (- (length name) 4)) name))
-                                 (offered (path-join (folder-name (or (analysis-saved analysis) (native (expand-path "~/"))))
+                                 (offered (path-join (folder-name (parent-path (analysis-path analysis)))
                                                      (format nil "~a-revision-~d.pdf" stem number)))
                                  (target (read-new-native-path (format nil "Write revision ~d to: " number) :initial (abbreviated-path offered))))
                             (when target
