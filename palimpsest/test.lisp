@@ -493,9 +493,10 @@ xmp:CreateDate='2020-03-01T09:00:00+13:00' xmp:CreatorTool='Kea Writer' xmpMM:Do
                                              (tuatara.frontend:parse-key-sequence "q")))
           (when buffer (tuatara.buffer:kill-buffer buffer)))))))
 
-(define-test (palimpsest palimpsest-version-before)
-  ;; the version before the latest written as a PDF of its own, its log beside it, the copy's sum checked;
-  ;; that PDF, examined in turn, has no version before it; nothing written over, nor beside the evidence
+(define-test (palimpsest palimpsest-revision-written)
+  ;; a revision written as a PDF of its own, its log beside it, the copy's sum checked; that PDF, examined
+  ;; in turn, holds the saves up to it; nothing written over, nor beside the evidence; the revision meant
+  ;; by a revision opened from the report
   (with-test-directory (dir)
     (let* ((octets (pal-edited))
            (path (namestring (merge-pathnames "invoice.pdf" dir)))
@@ -507,12 +508,36 @@ xmp:CreateDate='2020-03-01T09:00:00+13:00' xmp:CreatorTool='Kea Writer' xmpMM:Do
         (palimpsest::examine job)
         (let* ((analysis (palimpsest::palimpsest-job-analysis job))
                (first-end (palimpsest::revision-end (aref (palimpsest::pdf-revisions (palimpsest::analysis-pdf analysis)) 0))))
-          (true (palimpsest::write-previous analysis target))
+          (true (palimpsest::write-revision analysis 1 target))
           (is equalp (subseq octets 0 first-end) (tuatara.io:file-octets target))
           (pal-has (uiop:read-file-string (concatenate 'string out "invoice-revision-1.log")) "Palimpsest log of revision 1")
-          (pal-has (palimpsest::previous-refusal analysis target) "there already")
-          (pal-has (palimpsest::previous-refusal analysis (namestring (merge-pathnames "beside.pdf" dir))) "beside the evidence")
+          (pal-has (palimpsest::revision-refusal analysis target) "there already")
+          (pal-has (palimpsest::revision-refusal analysis (namestring (merge-pathnames "beside.pdf" dir))) "beside the evidence")
           ;; the version written holds one save: nothing before it
           (let ((again (palimpsest::make-palimpsest-job nil target (tuatara.defaults::new-private-folder (tuatara.defaults::private-cache-directory "palimpsest/")))))
             (palimpsest::examine again)
-            (false (palimpsest::previous-revision-files (palimpsest::palimpsest-job-analysis again)))))))))
+            (is = 1 (length (palimpsest::analysis-files (palimpsest::palimpsest-job-analysis again))))
+            (false (palimpsest::revision-files (palimpsest::palimpsest-job-analysis again) 2))))))))
+
+(define-test (palimpsest palimpsest-revision-meant)
+  ;; in a revision opened from the report, the revision meant is that one
+  (with-test-directory (dir)
+    (let* ((path (namestring (merge-pathnames "invoice.pdf" dir)))
+           (folder (tuatara.defaults::new-private-folder (tuatara.defaults::private-cache-directory "palimpsest/")))
+           (tuatara.command:*editor* (nth-value 1 (run-keys "" :text ""))))
+      (with-open-file (o path :direction :output :element-type '(unsigned-byte 8)) (write-sequence (pal-edited) o))
+      (let ((job (palimpsest::make-palimpsest-job nil path folder))
+            (report (tuatara.buffer:make-buffer "*Palimpsest: invoice.pdf*")))
+        (palimpsest::examine job)
+        (setf (tuatara.buffer:buffer-local report 'palimpsest::analysis) (palimpsest::palimpsest-job-analysis job))
+        (let ((second (first (second (palimpsest::analysis-files (palimpsest::palimpsest-job-analysis job)))))
+              (shown nil))
+          (unwind-protect
+               (progn
+                 (tuatara.defaults::visit-path second :show (lambda (b) (setf shown b) (tuatara.command:show-buffer b)))
+                 (let ((tuatara.command:*current-buffer* shown))
+                   (multiple-value-bind (found number) (palimpsest::revision-meant)
+                     (is eq report found)
+                     (is = 2 number))))
+            (when shown (tuatara.buffer:kill-buffer shown))
+            (tuatara.buffer:kill-buffer report)))))))

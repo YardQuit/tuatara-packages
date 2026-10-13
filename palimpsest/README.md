@@ -51,7 +51,7 @@ The report has three parts:
 | The report | `TAB`, `S-TAB` | Go from one link to the next. |
 | The report | `s` | Saves the revisions, their logs and the report (`M-x palimpsest-save`): see below. |
 | The report | `o` | Shows an object: where it is in the file, its dictionary as written, its stream decoded, as text, or as a hex dump when it is not text (always as a hex dump with `C-u o`). Asks for its number, offering the one at point. |
-| The report | `w` | Writes the version before the latest save as a PDF of its own, to show to others, its log beside it, and opens it (`M-x palimpsest-write-previous`). Run palimpsest on that PDF and press `w` again to go back one save more. |
+| The report, a revision opened from it | `w` | Writes a revision as a PDF of its own, to show to others, its log beside it, and opens it (`M-x palimpsest-write-revision`): the revision whose part of the report the cursor is in, or the revision you are looking at; else it asks which, offering the one before the latest. |
 | Either | `q` | Closes it. Closing the report deletes its own copies of the revisions and logs; when they were not saved it asks first: `Revisions and logs not saved: close and delete them? (y or n)`. |
 
 ## Each revision written out, with its log
@@ -103,14 +103,15 @@ saved, and closing the report no longer asks.
 ### One version to show
 
 The `revision-N.pdf` links open the report's own copies, to look at; they go
-with the report. To hand one version to someone else, `w` writes the version
-before the latest save as a PDF wherever you say (offered as
-`NAME-revision-N.pdf`), with its log beside it as `NAME-revision-N.log`, each
-copy's SHA-256 checked, and opens it. The same refusals hold: never beside the
-evidence, never in the package's folder, nothing written over. That PDF is the
-file as it stood after that save, so palimpsest run on it finds its own saves,
-and `w` there goes back one more; on a PDF saved once it says there is no
-earlier version.
+with the report. To hand one version to someone else, `w` writes it wherever
+you say (offered as `NAME-revision-N.pdf`), with its log beside it as
+`NAME-revision-N.log`, each copy's SHA-256 checked, and opens it. Which
+revision: the one whose part of the report (under `* Revisions`) the cursor
+is in; in a revision you opened from the report, that one; elsewhere in the
+report it asks, offering the one before the latest. The same refusals hold:
+never beside the evidence, never in the package's folder, nothing written
+over. The PDF written is the file as it stood after that save, so palimpsest
+run on it finds the saves up to it.
 
 ## What each finding means
 

@@ -414,7 +414,7 @@ once its job, stopped as the buffer goes, has ended."
       (setf (buffer-local buffer 'palimpsest-folder) nil)
       ;; a revision or log opened from the report goes with it, its file about to go
       (dolist (other (buffer-list))
-        (let ((file (buffer-file other)))
+        (let ((file (shown-file other)))
           (when (and file (not (eq other buffer)) (inside-folder-p (native file) folder))
             (kill-buffer other))))
       (make-guarded-thread
@@ -532,20 +532,26 @@ and which are there is said. Copied in the background."
                                             (save-copies analysis folder :cancel (job-cancel job))))
                                     :name "tuatara palimpsest saving"))))))))
 
-;;; The version before, to show
+;;; One revision, to show
 
-(defun previous-revision-files (analysis)
-  "The revision before the latest of ANALYSIS's PDF as it was written, as
-four values: its PDF, its log, its SHA-256 and its number; NIL when the PDF
-holds one save only, or that revision could not be written."
+(defun revision-files (analysis number)
+  "Revision NUMBER (from 1, the original) of ANALYSIS's PDF as it was written,
+as three values: its PDF, its log and its SHA-256; NIL when there is no such
+revision, or it could not be written."
   (let ((files (analysis-files analysis)))
-    (when (>= (length files) 2)
-      (destructuring-bind (file log sum) (nth (- (length files) 2) files)
-        (and file (values file log sum (1- (length files))))))))
+    (when (<= 1 number (length files))
+      (destructuring-bind (file log sum) (nth (1- number) files)
+        (and file (values file log sum))))))
 
-(defun previous-refusal (analysis target)
-  "Why the version before cannot be written as TARGET, a PDF's native name,
-in words; NIL when it can."
+(defun log-beside (target)
+  "The name of the log written beside TARGET, a PDF's native name: its name with .log for .pdf."
+  (let ((name (native-file-name target)))
+    (path-join (folder-name (parent-path target))
+               (concatenate 'string (if (uiop:string-suffix-p (string-downcase name) ".pdf") (subseq name 0 (- (length name) 4)) name) ".log"))))
+
+(defun revision-refusal (analysis target)
+  "Why a revision cannot be written as TARGET, a PDF's native name, in words;
+NIL when it can."
   (let ((folder (parent-path target)) (log (log-beside target)))
     (cond ((string= (folder-name folder) (folder-name (parent-path (analysis-path analysis))))
            "it is the folder of the PDF examined: nothing is written beside the evidence")
@@ -554,29 +560,23 @@ in words; NIL when it can."
           ((path-kind target :follow nil) (format nil "~a is there already: nothing is written over" (native-file-name target)))
           ((path-kind log :follow nil) (format nil "~a is there already: nothing is written over" (native-file-name log))))))
 
-(defun log-beside (target)
-  "The name of the log written beside TARGET, a PDF's native name: its name with .log for .pdf."
-  (let ((name (native-file-name target)))
-    (path-join (folder-name (parent-path target))
-               (concatenate 'string (if (uiop:string-suffix-p (string-downcase name) ".pdf") (subseq name 0 (- (length name) 4)) name) ".log"))))
+(defstruct (palimpsest-revision-job (:include job) (:constructor make-palimpsest-revision-job (buffer analysis number target)) (:copier nil))
+  "Writing revision NUMBER of ANALYSIS's PDF as TARGET, with its log beside it, for BUFFER, a job; SUM, the copy's checked SHA-256."
+  analysis number target sum)
 
-(defstruct (palimpsest-previous-job (:include job) (:constructor make-palimpsest-previous-job (buffer analysis target)) (:copier nil))
-  "Writing the version before the latest of ANALYSIS's PDF as TARGET, with its log beside it, for BUFFER, a job; SUM, the copy's checked SHA-256."
-  analysis target sum)
+(setf (documentation 'palimpsest-revision-job-p 'function) "True when OBJECT is a PALIMPSEST-REVISION-JOB.")
 
-(setf (documentation 'palimpsest-previous-job-p 'function) "True when OBJECT is a PALIMPSEST-PREVIOUS-JOB.")
-
-(define-job-words palimpsest-previous-job
-  :doing "Writing the version before"
-  :description (format nil "Writing the version before to ~a" (palimpsest-previous-job-target job))
-  :verb "write the version before"
+(define-job-words palimpsest-revision-job
+  :doing "Writing a revision"
+  :description (format nil "Writing revision ~d to ~a" (palimpsest-revision-job-number job) (palimpsest-revision-job-target job))
+  :verb "write the revision"
   :left-words "a part of it may have been written")
 
-(defun write-previous (analysis target &key (cancel (list nil)))
-  "Copy the revision before the latest of ANALYSIS's PDF to TARGET, and its log
-beside it (LOG-BESIDE), each copy's SHA-256 checked against its original.
-Returns the PDF copy's SHA-256; an error when a sum differs."
-  (multiple-value-bind (file log sum) (previous-revision-files analysis)
+(defun write-revision (analysis number target &key (cancel (list nil)))
+  "Copy revision NUMBER of ANALYSIS's PDF to TARGET, and its log beside it
+\(LOG-BESIDE), each copy's SHA-256 checked against its original. Returns the
+PDF copy's SHA-256; an error when a sum differs."
+  (multiple-value-bind (file log sum) (revision-files analysis number)
     (ensure-directories-exist (sb-ext:parse-native-namestring (folder-name (parent-path target))))
     (loop for (source copy original) in (list (list file target sum) (list log (log-beside target) nil))
           do (unless (copy-regular-file source copy :cancel cancel) (job-check-stop))
@@ -585,47 +585,66 @@ Returns the PDF copy's SHA-256; an error when a sum differs."
                  (error "the copy at ~a does not have its original's SHA-256" copy))))
     (file-sha256 target :cancel cancel)))
 
-(defmethod job-take-in ((job palimpsest-previous-job))
-  "Open the version written in the PDF view and say what it is; or why it was not written."
-  (let* ((analysis (palimpsest-previous-job-analysis job))
-         (target (palimpsest-previous-job-target job))
-         (count (length (analysis-files analysis))))
-    (if (palimpsest-previous-job-sum job)
+(defmethod job-take-in ((job palimpsest-revision-job))
+  "Open the revision written in the PDF view and say what it is; or why it was not written."
+  (let* ((analysis (palimpsest-revision-job-analysis job))
+         (target (palimpsest-revision-job-target job))
+         (number (palimpsest-revision-job-number job)))
+    (if (palimpsest-revision-job-sum job)
         (progn
           (visit-path target)
-          (message "Wrote ~a: ~a as its revision ~d of ~d was, SHA-256 ~a, its log beside it; ~a on it, then ~a, goes back one more"
-                   (abbreviated-path target) (analysis-name analysis) (1- count) count
-                   (palimpsest-previous-job-sum job)
-                   (substitute-command-keys "\\[palimpsest]") (substitute-command-keys "\\<palimpsest-mode>\\[palimpsest-write-previous]")))
-        (message "The version before was not written: ~a" (job-ending-words job)))))
+          (message "Wrote ~a: ~a as its revision ~d of ~d was, SHA-256 ~a, its log beside it~:[~;; ~a on it, then ~a, goes back further~]"
+                   (abbreviated-path target) (analysis-name analysis) number (length (analysis-files analysis))
+                   (palimpsest-revision-job-sum job) (> number 1)
+                   (substitute-command-keys "\\[palimpsest]") (substitute-command-keys "\\<palimpsest-mode>\\[palimpsest-write-revision]")))
+        (message "Revision ~d was not written: ~a" number (job-ending-words job)))))
 
-(define-command palimpsest-write-previous ()
-  "Write the version of the PDF the report is on as it was before its latest
-save, as a PDF of its own to show to others, its log beside it: asked where,
-never beside the evidence nor in the package's own folder, nothing written
-over; each copy's SHA-256 checked, and the PDF opened when it is written. On
-that PDF, \\[palimpsest] and this again go back one save more, as long as
-there is a save before."
-  (let ((analysis (buffer-local (current-buffer) 'analysis)))
-    (cond ((null analysis) (message "The report is not ready yet"))
-          ((null (previous-revision-files analysis))
-           (message "~a holds no earlier version: ~:[it was saved once~;the one before could not be written~]"
-                    (analysis-name analysis) (>= (length (analysis-files analysis)) 2)))
-          (t (let* ((number (nth-value 3 (previous-revision-files analysis)))
-                    (name (analysis-name analysis))
-                    (stem (if (uiop:string-suffix-p (string-downcase name) ".pdf") (subseq name 0 (- (length name) 4)) name))
-                    (offered (path-join (folder-name (or (analysis-saved analysis) (native (expand-path "~/"))))
-                                        (format nil "~a-revision-~d.pdf" stem number)))
-                    (target (read-new-native-path "Write the version before to: " :initial (abbreviated-path offered))))
-               (when target
-                 (let ((refusal (previous-refusal analysis target)))
-                   (if refusal
-                       (message "Not written to ~a: ~a" (abbreviated-path target) refusal)
-                       (start-job-thread (make-palimpsest-previous-job (current-buffer) analysis target)
-                                         (lambda (job)
-                                           (setf (palimpsest-previous-job-sum job)
-                                                 (write-previous analysis target :cancel (job-cancel job))))
-                                         :name "tuatara palimpsest previous")))))))))
+(defun revision-meant ()
+  "The report and the revision the current buffer points at, as two values:
+in a report, the report and the revision whose part point is in (or NIL);
+in a revision opened from a report, that report and that revision's number."
+  (let ((buffer (current-buffer)))
+    (if (buffer-local buffer 'analysis)
+        (let ((revision (report-revision-at (buffer-local buffer 'analysis))))
+          (values buffer (and revision (1+ (revision-index revision)))))
+        (let ((file (and (shown-file buffer) (native (shown-file buffer)))))
+          (dolist (report (buffer-list) (values nil nil))
+            (let ((analysis (buffer-local report 'analysis)))
+              (when analysis
+                (let ((k (position file (analysis-files analysis) :key #'first :test #'equal)))
+                  (when k (return (values report (1+ k))))))))))))
+
+(define-command palimpsest-write-revision ()
+  "Write a revision of the PDF the report is on as a PDF of its own, to show
+to others, its log beside it: the revision whose part of the report point is
+in, or the revision shown, when this is a revision opened from the report;
+else asked for, the one before the latest offered. Asked where, never beside
+the evidence nor in the package's own folder, nothing written over; each
+copy's SHA-256 checked, and the PDF opened when it is written. That PDF is the
+file as it stood after that save: \\[palimpsest] on it finds the saves before."
+  (multiple-value-bind (report meant) (revision-meant)
+    (let* ((analysis (and report (buffer-local report 'analysis)))
+           (count (and analysis (length (analysis-files analysis)))))
+      (cond ((null analysis) (message "Not a report of palimpsest, nor a revision opened from one: ~a there first" (substitute-command-keys "\\[palimpsest]")))
+            (t (let ((number (or meant (read-whole-number (format nil "Revision to write (1-~d)~~@[ (~~d)~~]: " count) (max 1 (1- count))
+                                                          :valid (lambda (n) (<= 1 n count)) :refusal (format nil "Not a revision: 1 to ~d." count)))))
+                 (cond ((null number))
+                       ((null (revision-files analysis number))
+                        (message "Revision ~d of ~a could not be written out, so it cannot be copied" number (analysis-name analysis)))
+                       (t (let* ((name (analysis-name analysis))
+                                 (stem (if (uiop:string-suffix-p (string-downcase name) ".pdf") (subseq name 0 (- (length name) 4)) name))
+                                 (offered (path-join (folder-name (or (analysis-saved analysis) (native (expand-path "~/"))))
+                                                     (format nil "~a-revision-~d.pdf" stem number)))
+                                 (target (read-new-native-path (format nil "Write revision ~d to: " number) :initial (abbreviated-path offered))))
+                            (when target
+                              (let ((refusal (revision-refusal analysis target)))
+                                (if refusal
+                                    (message "Not written to ~a: ~a" (abbreviated-path target) refusal)
+                                    (start-job-thread (make-palimpsest-revision-job report analysis number target)
+                                                      (lambda (job)
+                                                        (setf (palimpsest-revision-job-sum job)
+                                                              (write-revision analysis number target :cancel (job-cancel job))))
+                                                      :name "tuatara palimpsest revision")))))))))))))
 
 ;;; Objects shown
 
