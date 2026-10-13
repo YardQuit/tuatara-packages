@@ -29,6 +29,11 @@ everyone needs, and none is part of the editor.
 - =facecomp= :: faces in photos compared with a master photo's by the
   facecomp program, shut in the sandbox on copies of the photos: a match,
   a confidence label and the similarity for each.
+- =csv-records= :: in a CSV or TSV file, records kept or deleted by a
+  regular expression on one column, and the columns of every record
+  rearranged as awk's print does (=$0,$1,$3,$4"cent","hello"=), columns
+  counted from 0 as csvdt counts them; a file of gigabytes in the
+  background on every core.
 
 * Loading them
 
