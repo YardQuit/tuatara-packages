@@ -434,13 +434,19 @@ once its job, stopped as the buffer goes, has ended."
   (let ((path (folder-name path)) (folder (folder-name folder)))
     (and (<= (length folder) (length path)) (string= folder path :end2 (length folder)))))
 
+(defun report-file-name (analysis)
+  "The name the report on ANALYSIS's PDF is written under: NAME-revision-report.txt."
+  (let* ((name (analysis-name analysis))
+         (stem (if (uiop:string-suffix-p (string-downcase name) ".pdf") (subseq name 0 (- (length name) 4)) name)))
+    (format nil "~a-revision-report.txt" stem)))
+
 (defun saved-names (analysis)
   "The files saving ANALYSIS makes, each (SOURCE NAME SUM): each revision's PDF
 and log written (SUM, a PDF's SHA-256, or NIL to be worked out), then the
 report (SOURCE NIL)."
   (append (loop for (file log sum) in (analysis-files analysis)
                 when file append (list (list file (native-file-name file) sum) (list log (native-file-name log) nil)))
-          (list (list nil "report.txt" nil))))
+          (list (list nil (report-file-name analysis) nil))))
 
 (defun save-refusal (analysis folder)
   "Why the revisions, logs and report of ANALYSIS cannot be saved to FOLDER,
@@ -458,7 +464,7 @@ in words; NIL when they can."
 
 (defun save-copies (analysis folder &key (cancel (list nil)))
   "Copy ANALYSIS's revisions and logs to FOLDER (made when it is not there),
-and write the report there as report.txt, ending with where each copy is and
+and write the report there (REPORT-FILE-NAME), ending with where each copy is and
 its SHA-256, each checked against its original. Returns what was saved, each
 \(NAME SHA-256); an error naming the first copy whose sum differs."
   (let ((folder (folder-name folder)) (saved '()))
@@ -472,14 +478,14 @@ its SHA-256, each checked against its original. Returns what was saved, each
                    (unless (and original (equal original copy))
                      (error "the copy of ~a at ~a does not have its original's SHA-256" name target))
                    (push (list name copy) saved))))
-    (let ((report (path-join folder "report.txt")))
+    (let ((report (path-join folder (report-file-name analysis))))
       (write-file-text report
                        (with-output-to-string (s)
                          (write-string (first (analysis-shown analysis)) s)
                          (format s "~%* Saved~%~%Saved to ~a on ~a.~%Each copy's SHA-256, checked against its original:~%~%"
                                  folder (format-time "%F %T %z" (get-universal-time)))
                          (loop for (name sum) in (reverse saved) do (format s "  ~a  ~a~a~%" sum folder name))))
-      (push (list "report.txt" (file-sha256 report :cancel cancel)) saved))
+      (push (list (report-file-name analysis) (file-sha256 report :cancel cancel)) saved))
     (setf (analysis-saved analysis) folder)
     (nreverse saved)))
 
@@ -511,9 +517,9 @@ its SHA-256, each checked against its original. Returns what was saved, each
 
 (define-command palimpsest-save ()
   "Save the revisions of the PDF the report is on, each with its log, and
-the report itself as report.txt, to a folder asked for (made when it is not
+the report itself as NAME-revision-report.txt, to a folder asked for (made when it is not
 there): the work to keep, as the report's own copies go when it is closed.
-Each copy's SHA-256 is checked against its original, and report.txt ends
+Each copy's SHA-256 is checked against its original, and the report ends
 with where each copy is and its sum. Never the PDF's own folder, nor the
 package's own folder in the cache; a file there already is never written over: nothing is saved,
 and which are there is said. Copied in the background."
@@ -531,6 +537,27 @@ and which are there is said. Copied in the background."
                                       (setf (palimpsest-save-job-saved job)
                                             (save-copies analysis folder :cancel (job-cancel job))))
                                     :name "tuatara palimpsest saving"))))))))
+
+(defun write-report (analysis target)
+  "Write the report on ANALYSIS's PDF as text to TARGET, a native name not
+there yet; returns its SHA-256."
+  (write-file-text target (first (analysis-shown analysis)))
+  (file-sha256 target))
+
+(define-command palimpsest-write-report ()
+  "Write the report as text to a file asked for, NAME-revision-report.txt
+beside the PDF examined offered (the PDF itself never changed), nothing
+written over, and say its SHA-256."
+  (let ((analysis (buffer-local (current-buffer) 'analysis)))
+    (if (null analysis)
+        (message "The report is not ready yet")
+        (let ((target (read-new-native-path "Write the report to: "
+                                            :initial (abbreviated-path (path-join (folder-name (parent-path (analysis-path analysis)))
+                                                                                  (report-file-name analysis))))))
+          (when target
+            (if (path-kind target :follow nil)
+                (message "Not written: ~a is there already, and nothing is written over" (abbreviated-path target))
+                (message "Wrote the report to ~a, SHA-256 ~a" (abbreviated-path target) (write-report analysis target))))))))
 
 ;;; One revision, to show
 
