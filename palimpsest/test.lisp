@@ -479,3 +479,40 @@ xmp:CreateDate='2020-03-01T09:00:00+13:00' xmp:CreatorTool='Kea Writer' xmpMM:Do
       (tuatara.command:lookup-key (tuatara.modes:mode-keymap 'palimpsest::palimpsest-mode) (tuatara.frontend:parse-key-sequence "o")))
   (is eq 'palimpsest::palimpsest-save
       (tuatara.command:lookup-key (tuatara.modes:mode-keymap 'palimpsest::palimpsest-mode) (tuatara.frontend:parse-key-sequence "s"))))
+
+(define-test (palimpsest palimpsest-log-closes-with-q)
+  ;; a revision's log, opened from the report, reads as the report does: q closes it
+  (with-test-directory (dir)
+    (let ((path (namestring (merge-pathnames "revision-1.log" dir))))
+      (alexandria:write-string-into-file "Palimpsest log" path)
+      (let ((buffer nil) (tuatara.command:*editor* (nth-value 1 (run-keys "" :text ""))))
+        (tuatara.defaults::visit-path path :show (lambda (b) (setf buffer b) (palimpsest::show-log b)))
+        (unwind-protect
+             (is eq 'tuatara.defaults::quit-window
+                 (tuatara.command:lookup-key (tuatara.buffer:buffer-local buffer :override-keymap)
+                                             (tuatara.frontend:parse-key-sequence "q")))
+          (when buffer (tuatara.buffer:kill-buffer buffer)))))))
+
+(define-test (palimpsest palimpsest-version-before)
+  ;; the version before the latest written as a PDF of its own, its log beside it, the copy's sum checked;
+  ;; that PDF, examined in turn, has no version before it; nothing written over, nor beside the evidence
+  (with-test-directory (dir)
+    (let* ((octets (pal-edited))
+           (path (namestring (merge-pathnames "invoice.pdf" dir)))
+           (out (namestring (ensure-directories-exist (merge-pathnames "to-show/" dir))))
+           (target (concatenate 'string out "invoice-revision-1.pdf"))
+           (folder (tuatara.defaults::new-private-folder (tuatara.defaults::private-cache-directory "palimpsest/"))))
+      (with-open-file (o path :direction :output :element-type '(unsigned-byte 8)) (write-sequence octets o))
+      (let ((job (palimpsest::make-palimpsest-job nil path folder)))
+        (palimpsest::examine job)
+        (let* ((analysis (palimpsest::palimpsest-job-analysis job))
+               (first-end (palimpsest::revision-end (aref (palimpsest::pdf-revisions (palimpsest::analysis-pdf analysis)) 0))))
+          (true (palimpsest::write-previous analysis target))
+          (is equalp (subseq octets 0 first-end) (tuatara.io:file-octets target))
+          (pal-has (uiop:read-file-string (concatenate 'string out "invoice-revision-1.log")) "Palimpsest log of revision 1")
+          (pal-has (palimpsest::previous-refusal analysis target) "there already")
+          (pal-has (palimpsest::previous-refusal analysis (namestring (merge-pathnames "beside.pdf" dir))) "beside the evidence")
+          ;; the version written holds one save: nothing before it
+          (let ((again (palimpsest::make-palimpsest-job nil target (tuatara.defaults::new-private-folder (tuatara.defaults::private-cache-directory "palimpsest/")))))
+            (palimpsest::examine again)
+            (false (palimpsest::previous-revision-files (palimpsest::palimpsest-job-analysis again)))))))))

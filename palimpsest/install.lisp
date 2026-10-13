@@ -13,6 +13,7 @@ report ask first when its revisions were not saved, then delete them."
   (buttons-in-mode 'palimpsest-mode "the report on a PDF (its revisions' files and logs, its objects)")
   (define-key (mode-keymap 'palimpsest-mode) "o" 'palimpsest-show-object)
   (define-key (mode-keymap 'palimpsest-mode) "s" 'palimpsest-save)
+  (define-key (mode-keymap 'palimpsest-mode) "w" 'palimpsest-write-previous)
   (commands-for-mode 'palimpsest-mode "the report on a PDF" 'palimpsest-show-object 'palimpsest-save)
   (pushnew 'palimpsest-close-query *kill-buffer-query-functions*)
   (pushnew 'palimpsest-forget *kill-buffer-functions*))
