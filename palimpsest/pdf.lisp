@@ -30,6 +30,10 @@ decode to more is read no further, and the report says so.")
 section may list: a million as standard. Past them the rest is passed over,
 and the report says so.")
 
+(defparameter *most-entries* 5000000
+  "Cross-reference entries read from a PDF at most, all its sections together:
+saves that each name a section of a million entries read no further than this.")
+
 (define-package-setting *palimpsest-most-revisions* 500
   "The most saves (revisions) of a PDF taken apart: 500 as standard. A file
 saved more often has the rest listed as not read.")
@@ -39,8 +43,6 @@ saved more often has the rest listed as not read.")
 stream shared by many revisions is decoded once.")
 
 ;;; Octets
-
-(deftype octets () "A vector of octets." '(simple-array (unsigned-byte 8) (*)))
 
 (defun bytes (text)
   "TEXT, a string of ASCII, as octets."
@@ -605,7 +607,25 @@ values; NIL when it is no such stream or cannot be decoded."
 (defun read-section (pdf at)
   "The cross-reference section of PDF at AT, as five values: its entries,
 its trailer, its kind (:table, :stream, :hybrid), where it really is and
-what does not make sense in it; NIL when there is none at AT, nor near it."
+what does not make sense in it; NIL when there is none at AT, nor near it.
+Read once for each place, its entries shared by every save naming it; once
+the PDF's sections have given *MOST-ENTRIES* entries in all, no more is
+read, and that is said."
+  (let ((sections (or (getf (pdf-cache pdf) :sections)
+                      (setf (getf (pdf-cache pdf) :sections) (make-hash-table)))))
+    (values-list
+     (or (gethash at sections)
+         (setf (gethash at sections)
+               (if (>= (or (getf (pdf-cache pdf) :entries-read) 0) *most-entries*)
+                   (list nil nil nil nil
+                         (list (format nil "its cross-reference section was not read: the file's sections already hold ~:d entries" *most-entries*)))
+                   (let ((read (multiple-value-list (read-section-anew pdf at))))
+                     (when (first read)
+                       (incf (getf (pdf-cache pdf) :entries-read 0) (hash-table-count (first read))))
+                     read)))))))
+
+(defun read-section-anew (pdf at)
+  "The cross-reference section of PDF at AT as READ-SECTION gives it, read from its octets."
   (let ((octets (pdf-octets pdf)))
     (flet ((try (place)
              (multiple-value-bind (entries trailer problems) (read-xref-table pdf place)
@@ -621,11 +641,11 @@ what does not make sense in it; NIL when there is none at AT, nor near it."
                                           (when (or (null old) (eq (entry-kind old) :free))
                                             (setf (gethash number entries) entry))))
                                       more)))))
-                     (return-from read-section (values entries trailer (if (integerp hidden) :hybrid :table) place problems)))
+                     (return-from read-section-anew (values entries trailer (if (integerp hidden) :hybrid :table) place problems)))
                    (let ((object (object-at-offset pdf place)))
                      (when (and object (name-p (dget (pobj-value object) "/Type") "/XRef"))
                        (multiple-value-bind (entries problems) (read-xref-stream pdf object)
-                         (return-from read-section
+                         (return-from read-section-anew
                            (values (or entries (make-hash-table)) (pobj-value object) :stream place problems)))))))))
       (when (and (integerp at) (< -1 at (length octets)))
         (try at)
@@ -711,7 +731,11 @@ from START, read by the cross-reference section its startxref names."
 (defun merge-revisions (first second)
   "FIRST and SECOND, the two sections of a file prepared for the web, as one
 revision: the octets of both, the entries of both (FIRST's first), FIRST's
-trailer with what SECOND's adds."
+trailer with what SECOND's adds; FIRST's entries copied first, as a section's
+entries may be shared with another save (READ-SECTION)."
+  (let ((entries (make-hash-table :size (hash-table-count (revision-entries first)))))
+    (maphash (lambda (number entry) (setf (gethash number entries) entry)) (revision-entries first))
+    (setf (revision-entries first) entries))
   (maphash (lambda (number entry)
              (unless (gethash number (revision-entries first))
                (setf (gethash number (revision-entries first)) entry)))

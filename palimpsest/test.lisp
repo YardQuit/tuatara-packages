@@ -353,6 +353,23 @@ xmp:CreateDate='2020-03-01T09:00:00+13:00' xmp:CreatorTool='Kea Writer' xmpMM:Do
           (true (listp findings)))))
     (true (< (- (get-internal-real-time) start) (* 30 internal-time-units-per-second)))))
 
+(define-test (palimpsest palimpsest-operators-budget)
+  ;; the marks of pages kept to be used again no more than *most-marks-kept* in all, the pages compared alike
+  (let ((palimpsest::*most-marks-kept* 2))
+    (multiple-value-bind (pdf accounts) (pal-read (pal-edited))
+      (is equal '((:removed "Total: 100") (:added "Total: 900"))
+          (palimpsest::page-change-text (first (palimpsest::account-changes (second accounts)))))
+      (true (<= (getf (palimpsest::pdf-cache pdf) :marks-kept 0) 2))
+      (true (<= (hash-table-count (getf (palimpsest::pdf-cache pdf) :marks)) 1))
+      (false (find-if (lambda (n) (search "operators in all" n)) (palimpsest::pdf-notes pdf)))))
+  ;; one budget of operators for every save's pages together: past it nothing more is read, and that is noted
+  (let ((palimpsest::*most-operators-in-all* 12))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-edited))
+      (declare (ignore accounts))
+      (true (listp findings))
+      (true (find-if (lambda (n) (search "operators in all" n)) (palimpsest::pdf-notes pdf)))
+      (true (<= (getf (palimpsest::pdf-cache pdf) :operators-read 0) 12)))))
+
 ;;; The revisions written, their logs, the report
 
 (define-test (palimpsest palimpsest-revisions-and-logs)
@@ -459,7 +476,7 @@ xmp:CreateDate='2020-03-01T09:00:00+13:00' xmp:CreatorTool='Kea Writer' xmpMM:Do
         (is string= "*Palimpsest: invoice.pdf*" (tuatara.buffer:buffer-name buffer))
         (true (tuatara.buffer:buffer-local buffer :read-only))
         (pal-has (session-text editor) "Page 1 was changed in revision 2")
-        (let ((folder (tuatara.buffer:buffer-local buffer 'palimpsest::palimpsest-folder)))
+        (let ((folder (tuatara:buffer-private-folder buffer)))
           (true (probe-file (tuatara.io:path-join folder "revision-2.log")))
           ;; closing it with nothing saved asks first: n keeps it, y closes it and deletes what it wrote
           (flet ((close-answering (answer)
@@ -495,38 +512,43 @@ xmp:CreateDate='2020-03-01T09:00:00+13:00' xmp:CreatorTool='Kea Writer' xmpMM:Do
 
 (define-test (palimpsest palimpsest-revision-written)
   ;; a revision written as a PDF of its own, its log beside it, the copy's sum checked; that PDF, examined
-  ;; in turn, holds the saves up to it; nothing written over, nor beside the evidence; the revision meant
+  ;; in turn, holds the saves up to it; nothing written over, the evidence unchanged; the revision meant
   ;; by a revision opened from the report
   (with-test-directory (dir)
     (let* ((octets (pal-edited))
            (path (namestring (merge-pathnames "invoice.pdf" dir)))
            (out (namestring (ensure-directories-exist (merge-pathnames "to-show/" dir))))
            (target (concatenate 'string out "invoice-revision-1.pdf"))
-           (folder (tuatara.defaults::new-private-folder (tuatara.defaults::private-cache-directory "palimpsest/"))))
+           (folder (tuatara.defaults::new-private-folder (tuatara.defaults::private-cache-directory "palimpsest/")))
+           (again-folder (tuatara.defaults::new-private-folder (tuatara.defaults::private-cache-directory "palimpsest/"))))
       (with-open-file (o path :direction :output :element-type '(unsigned-byte 8)) (write-sequence octets o))
-      (let ((job (palimpsest::make-palimpsest-job nil path folder)))
-        (palimpsest::examine job)
-        (let* ((analysis (palimpsest::palimpsest-job-analysis job))
-               (first-end (palimpsest::revision-end (aref (palimpsest::pdf-revisions (palimpsest::analysis-pdf analysis)) 0))))
-          (true (palimpsest::write-revision analysis 1 target))
-          ;; the report alone, under the name it is offered
-          (is string= "invoice-revision-report.txt" (palimpsest::report-file-name analysis))
-          (let ((report (concatenate 'string out "invoice-revision-report.txt")))
-            (setf (palimpsest::analysis-shown analysis) (multiple-value-list (palimpsest::pieces-text (palimpsest::report-pieces analysis))))
-            (true (palimpsest::write-report analysis report))
-            (pal-has (uiop:read-file-string report) "* Summary"))
-          (is equalp (subseq octets 0 first-end) (tuatara.io:file-octets target))
-          (pal-has (uiop:read-file-string (concatenate 'string out "invoice-revision-1.log")) "Palimpsest log of revision 1")
-          (pal-has (palimpsest::revision-refusal analysis target) "there already")
-          ;; beside the PDF examined it may go, the PDF itself untouched
-          (false (palimpsest::revision-refusal analysis (namestring (merge-pathnames "invoice-revision-1.pdf" dir))))
-          (true (palimpsest::write-revision analysis 1 (namestring (merge-pathnames "invoice-revision-1.pdf" dir))))
-          (is equalp octets (tuatara.io:file-octets path))
-          ;; the version written holds one save: nothing before it
-          (let ((again (palimpsest::make-palimpsest-job nil target (tuatara.defaults::new-private-folder (tuatara.defaults::private-cache-directory "palimpsest/")))))
-            (palimpsest::examine again)
-            (is = 1 (length (palimpsest::analysis-files (palimpsest::palimpsest-job-analysis again))))
-            (false (palimpsest::revision-files (palimpsest::palimpsest-job-analysis again) 2))))))))
+      (unwind-protect
+          (let ((job (palimpsest::make-palimpsest-job nil path folder)))
+            (palimpsest::examine job)
+            (let* ((analysis (palimpsest::palimpsest-job-analysis job))
+                   (first-end (palimpsest::revision-end (aref (palimpsest::pdf-revisions (palimpsest::analysis-pdf analysis)) 0))))
+              (true (palimpsest::write-revision analysis 1 target))
+              ;; the report alone, under the name it is offered
+              (is string= "invoice-revision-report.txt" (palimpsest::report-file-name analysis))
+              (let ((report (concatenate 'string out "invoice-revision-report.txt")))
+                (setf (palimpsest::analysis-shown analysis) (multiple-value-list (palimpsest::pieces-text (palimpsest::report-pieces analysis))))
+                (true (palimpsest::write-report analysis report))
+                (pal-has (uiop:read-file-string report) "* Summary"))
+              (is equalp (subseq octets 0 first-end) (tuatara.io:file-octets target))
+              (pal-has (uiop:read-file-string (concatenate 'string out "invoice-revision-1.log")) "Palimpsest log of revision 1")
+              (pal-has (palimpsest::revision-refusal analysis target) "there already")
+              ;; beside the PDF examined it may go, the PDF itself untouched
+              (false (palimpsest::revision-refusal analysis (namestring (merge-pathnames "invoice-revision-1.pdf" dir))))
+              (true (palimpsest::write-revision analysis 1 (namestring (merge-pathnames "invoice-revision-1.pdf" dir))))
+              (is equalp octets (tuatara.io:file-octets path))
+              ;; the version written holds one save: nothing before it
+              (let ((again (palimpsest::make-palimpsest-job nil target again-folder)))
+                (palimpsest::examine again)
+                (is = 1 (length (palimpsest::analysis-files (palimpsest::palimpsest-job-analysis again))))
+                (false (palimpsest::revision-files (palimpsest::palimpsest-job-analysis again) 2)))))
+        ;; its private folders go with it
+        (tuatara.io:delete-tree folder)
+        (tuatara.io:delete-tree again-folder)))))
 
 (define-test (palimpsest palimpsest-revision-meant)
   ;; in a revision opened from the report, the revision meant is that one
@@ -549,4 +571,5 @@ xmp:CreateDate='2020-03-01T09:00:00+13:00' xmp:CreatorTool='Kea Writer' xmpMM:Do
                      (is eq report found)
                      (is = 2 number))))
             (when shown (tuatara.buffer:kill-buffer shown))
-            (tuatara.buffer:kill-buffer report)))))))
+            (tuatara.buffer:kill-buffer report)
+            (tuatara.io:delete-tree folder)))))))

@@ -195,53 +195,29 @@ its tree, and its object number; NIL when it has none or it cannot be read."
   "The saves an XMP TREE's edit history (xmpMM:History) lists, each an alist
 of (LOCAL-NAME . VALUE): action, when, softwareAgent, instanceID, changed."
   (let ((steps '()))
-    (labels ((children (node) (remove-if-not #'consp (cddr node)))
-             (text (node) (string-trim '(#\Space #\Newline #\Tab #\Return) (format nil "~{~a~}" (remove-if-not #'stringp (cddr node)))))
+    (labels ((elements (node) (remove-if-not #'consp (xml-children node)))
+             (text (node) (string-trim '(#\Space #\Newline #\Tab #\Return) (format nil "~{~a~}" (remove-if-not #'stringp (xml-children node)))))
              (item (li)
                (let ((fields (loop for (name . value) in (second li)
                                    unless (search "rdf:" name) collect (cons (local-name name) value))))
-                 (dolist (child (children li))
-                   (if (string= (local-name (first child)) "Description")
+                 (dolist (child (elements li))
+                   (if (string= (xml-local-name child) "Description")
                        (setf fields (append fields (cdr (item child))))
-                       (push (cons (local-name (first child)) (text child)) fields)))
-                 (cons :step fields)))
-             (walk (node depth)
-               (when (and (consp node) (< depth 64))
-                 (if (string= (local-name (first node)) "History")
-                     (dolist (list (children node))
-                       (dolist (li (children list))
-                         (when (string= (local-name (first li)) "li") (push (cdr (item li)) steps))))
-                     (dolist (child (children node)) (walk child (1+ depth)))))))
-      (walk tree 0))
+                       (push (cons (xml-local-name child) (text child)) fields)))
+                 (cons :step fields))))
+      (dolist (history (xml-find-all tree "History" :local t))
+        (dolist (list (elements history))
+          (dolist (li (xml-local-children list "li"))
+            (push (cdr (item li)) steps)))))
     (nreverse steps)))
-
-(defun xmp-date (text)
-  "TEXT, a date as XMP writes it (2024-03-01T12:00:00+13:00), as two values:
-the universal time and its zone in minutes east of UTC (NIL when none)."
-  (multiple-value-bind (match parts)
-      (cl-ppcre:scan-to-strings "^(\\d{4})-(\\d{2})(?:-(\\d{2}))?(?:T(\\d{2}):(\\d{2})(?::(\\d{2}))?(?:\\.\\d+)?)?(Z|[+-]\\d{2}:?\\d{2})?" (or text ""))
-    (when match
-      (flet ((part (k standard) (if (aref parts k) (parse-integer (aref parts k)) standard)))
-        (let* ((zone-text (aref parts 6))
-               (zone (cond ((null zone-text) nil) ((string= zone-text "Z") 0)
-                           (t (let ((digits (remove #\: zone-text)))
-                                (* (if (char= (char digits 0) #\-) -1 1)
-                                   (+ (* 60 (parse-integer digits :start 1 :end 3)) (parse-integer digits :start 3 :end 5)))))))
-               (time (ignore-errors (encode-universal-time (part 5 0) (part 4 0) (part 3 0) (part 2 1) (part 1 1) (part 0 0) 0))))
-          (values (and time (- time (* 60 (or zone 0)))) zone))))))
 
 (defun date-of (text)
   "TEXT, a date as a PDF or XMP writes it, as two values: the universal time and its zone in minutes, or NIL."
   (if (and text (cl-ppcre:scan "^\\d{4}-" text))
-      (xmp-date text)
+      (iso-date-time text)
       (multiple-value-bind (words time zone) (pdf-date-words text)
         (declare (ignore words))
         (values time zone))))
-
-(defun utc-words (time)
-  "The universal TIME in UTC, in words: 2024-03-01 12:00:00 UTC."
-  (and time (multiple-value-bind (s m h d mo y) (decode-universal-time time 0)
-              (format nil "~d-~2,'0d-~2,'0d ~2,'0d:~2,'0d:~2,'0d UTC" y mo d h m s))))
 
 ;;; Tools that make and edit PDFs
 
@@ -657,13 +633,13 @@ object it adds or changes, or a new page) set beside what it was before."
               (multiple-value-bind (ct cz) (date-of created)
                 (multiple-value-bind (mt mz) (date-of changed)
                   (when (and ct mt (< mt (- ct 60)))
-                    (push (found :strong (format nil "In ~a the file was last changed (~a) before it was made (~a): a date was set by hand." where (utc-words mt) (utc-words ct))
+                    (push (found :strong (format nil "In ~a the file was last changed (~a) before it was made (~a): a date was set by hand." where (utc-time-words mt) (utc-time-words ct))
                                  :rule "A file cannot be changed before it was made."
                                  :revision (revision-index last) :evidence (append created-evidence changed-evidence))
                           out))
                   (loop for (time text evidence) in (list (list ct created created-evidence) (list mt changed changed-evidence))
                         when (and time (> time (+ now 86400)))
-                          do (push (found :strong (format nil "~@(~a~) gives a date in the future, ~a: a clock set wrong, or a date set by hand." where (utc-words time))
+                          do (push (found :strong (format nil "~@(~a~) gives a date in the future, ~a: a clock set wrong, or a date set by hand." where (utc-time-words time))
                                           :rule "No date a file gives can be after today."
                                           :revision (revision-index last) :evidence evidence)
                                    out))

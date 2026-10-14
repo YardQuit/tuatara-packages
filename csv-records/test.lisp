@@ -4,7 +4,7 @@
 (in-package #:tuatara.tests)
 
 (define-test csv-records
-  :description "The csv-records package: records kept or deleted by a pattern on one column (by its header's name or its number from 0) or the whole record, the header always kept; columns rearranged as awk's print, counted from 0; the same in memory and on disk in pieces.")
+  :description "The csv-records package: records kept or deleted by a pattern on one column (by its header's name or its number from 0) or the whole record, the header always kept; columns rearranged, counted from 0; the same in memory and on disk in pieces.")
 
 (defun csv-records-keys (text)
   "TEXT as the keys that type it, a space as SPC."
@@ -18,8 +18,8 @@ tiny pieces, a few lines each, so that a small text exercises it."
            (session-text (nth-value 1 (run-keys-in-turns (list (format nil "M-x ~a RET ~a" (csv-records-keys mode) keys) "")
                                                          :text text :width 100 :crlf crlf)))))
     (if on-disk
-        (let ((tuatara.defaults::*sort-in-memory-limit* 0)
-              (tuatara.defaults::*filter-piece* 16))
+        (let ((tuatara.defaults::*rewrite-piece* 16)
+              (tuatara.defaults::*rewrite-checkpoint* 8))
           (run))
         (run))))
 
@@ -39,7 +39,7 @@ tiny pieces, a few lines each, so that a small text exercises it."
 (define-test (csv-records record-rearranged)
   (flet ((arranged (spec record)
            (csv-records::rearranged-record record (length record) 44 (csv-records::parse-layout spec))))
-    ;; the user's example: five columns, the third left out, cent joined to the fifth, hello added
+    ;; five columns: the third left out, cent joined to the fifth's value, hello added
     (is string= "a,b,d,ecent,hello" (arranged "$0,$1,$3,$4\"cent\",\"hello\"" "a,b,c,d,e"))
     ;; a field alone keeps its quotes as written; one joined is quoted anew when it needs it
     (is string= "\"x,y\",\"x,yZ\",\"q\"\"Z\"" (arranged "$1,$1\"Z\",$2\"Z\"" "a,\"x,y\",\"q\"\"\""))
@@ -49,7 +49,11 @@ tiny pieces, a few lines each, so that a small text exercises it."
     (is string= "abcZ,\" xZ\"" (arranged "$0\"Z\",$1\"Z\"" "\"abc\",\" x\""))
     ;; $NF follows each record's own length
     (is string= "e" (arranged "$NF" "a,b,c,d,e"))
-    (is string= "a" (arranged "$NF" "a"))))
+    (is string= "a" (arranged "$NF" "a"))
+    ;; a byte-order mark stays at the start, no part of the first field
+    (is string= (format nil "~cb,a" (code-char #xfeff)) (arranged "$1,$0" (format nil "~ca,b" (code-char #xfeff))))
+    ;; a field far past the first ones is still found
+    (is string= ",c" (arranged "$100000000,$2" "a,b,c"))))
 
 (define-test (csv-records keep-and-delete)
   (dolist (on-disk '(nil t))
@@ -77,7 +81,7 @@ tiny pieces, a few lines each, so that a small text exercises it."
 
 (define-test (csv-records rearranged)
   (dolist (on-disk '(nil t))
-    ;; every line, the header too, as awk prints them
+    ;; every line, the header too
     (is string= (format nil "NOTE,NAME,NOTE!~%tea,Ann,tea!~%coffee,Bob,coffee!~%\"said \"\"hi\"\"\",Cat,\"said \"\"hi\"\"!\"~%,Dan,!~%")
         (csv-records-after (format nil "C-c r a ~a RET" (csv-records-keys "$2,$0,$2\"!\"")) *csv-records-sample* :on-disk on-disk)))
   ;; a CRLF file keeps its line ends

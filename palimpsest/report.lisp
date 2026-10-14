@@ -34,8 +34,11 @@ log opens the log, on an object's number shows the object; \\[forward-button] an
 \\[backward-button] go from one of these to the next. \\[palimpsest-show-object] shows an object's dictionary and
 stream (as text, or in hex when it is not text; always in hex with
 \\[universal-argument]); \\[palimpsest-save] saves the revisions, their logs and the report to a
-folder of your choosing; \\[quit-window] closes. Closing the report deletes its own copies of
-the revisions, asking first when they were not saved."
+folder of your choosing; \\[palimpsest-write-revision] writes the revision whose part point is in
+as a PDF to show, its log beside it; \\[palimpsest-write-report] writes the report alone as
+text; \\[quit-window] closes. Closing the report closes the revisions and logs opened
+from it and deletes its own copies of the revisions, asking first when they
+were not saved."
   :lighter "Palimpsest" :interactive nil)
 
 (define-major-mode palimpsest-object-mode special-mode
@@ -84,18 +87,6 @@ to 1; ANALYSIS, what it found."
   (setf (palimpsest-job-phase job) phase (palimpsest-job-progress job) from)
   (lambda (fraction) (setf (palimpsest-job-progress job) (+ from (* (- to from) (min 1 (max 0 fraction)))))))
 
-(defun write-file-octets (path octets end)
-  "Write the first END of OCTETS as a new file at PATH, readable by you alone and written by nothing again (0400)."
-  (with-open-file (out (sb-ext:parse-native-namestring path) :direction :output :element-type '(unsigned-byte 8) :if-exists :error)
-    (write-sequence octets out :end end))
-  (sb-posix:chmod path #o400))
-
-(defun write-file-text (path text)
-  "Write TEXT as a new file at PATH in UTF-8, readable by you alone and written by nothing again (0400)."
-  (with-open-file (out (sb-ext:parse-native-namestring path) :direction :output :external-format :utf-8 :if-exists :error)
-    (write-string text out))
-  (sb-posix:chmod path #o400))
-
 (defun examine (job)
   "What a job examining a PDF does: the file read whole and summed, its
 structure read, each revision compared with the one before, every sign
@@ -137,9 +128,9 @@ free space allow."
                                   (t (incf written end)
                                      (let ((file (path-join folder (format nil "revision-~d.pdf" k)))
                                            (log (path-join folder (format nil "revision-~d.log" k))))
-                                       (write-file-octets file (pdf-octets pdf) end)
+                                       (write-new-file file (pdf-octets pdf) :end end)
                                        (let ((sum (file-sha256 file :cancel (job-cancel job))))
-                                         (write-file-text log (revision-log analysis revision sum))
+                                         (write-new-file log (revision-log analysis revision sum))
                                          (list file log sum)))))))))))
 
 ;;; The log of a revision
@@ -385,60 +376,40 @@ revision before. The same file gives the same log but for its date line."
 
 (defun palimpsest-buffer (native)
   "The buffer of the report on the PDF at NATIVE: the one there is, else a
-new one, the PDF examined for it in the background (EXAMINE)."
+new one, the PDF examined for it in the background (EXAMINE), its revisions
+written to a folder of its own, deleted when it is closed."
   (let ((name (native-file-name native)))
     (reading-buffer '*palimpsest-reports* (lambda (b) (buffer-local b 'palimpsest-path)) native
                     (format nil "*Palimpsest: ~a*" name) (format nil "Examining ~a for signs of editing...~%" name) 'palimpsest-mode
                     (lambda (buffer)
-                      (let ((folder (new-private-folder (private-cache-directory "palimpsest/"))))
-                        (setf (buffer-local buffer 'palimpsest-path) native
-                              (buffer-local buffer 'palimpsest-folder) folder)
-                        (start-job-thread (make-palimpsest-job buffer native folder) #'examine :name "tuatara palimpsest"))))))
+                      (setf (buffer-local buffer 'palimpsest-path) native)
+                      (start-job-thread (make-palimpsest-job buffer native (buffer-private-folder buffer)) #'examine :name "tuatara palimpsest"))
+                    :private-folder "palimpsest/")))
 
 (defun palimpsest-close-query (buffer)
   "Kill-buffer query: true to close BUFFER, a report on a PDF, at once when
 its revisions and logs were saved (\\<palimpsest-mode>\\[palimpsest-save]) or none were written;
 else asked first, as closing deletes them."
   (let ((analysis (buffer-local buffer 'analysis)))
-    (or (null analysis) (analysis-saved analysis) (null (buffer-local buffer 'palimpsest-folder))
+    (or (null analysis) (analysis-saved analysis) (null (buffer-private-folder buffer))
         (notany #'first (analysis-files analysis))
         (yes-or-no-p* "Revisions and logs not saved: close and delete them?"))))
 
 (defun palimpsest-forget (buffer)
   "Kill-buffer function: when BUFFER is a report on a PDF, close the buffers
-showing the revisions and logs it wrote, and delete them, in the background,
-once its job, stopped as the buffer goes, has ended."
-  (let ((folder (buffer-local buffer 'palimpsest-folder))
-        (job (find-if #'palimpsest-job-p (jobs-of buffer))))
+showing the revisions and logs it wrote, as its folder is deleted with it."
+  (let ((folder (and (buffer-local buffer 'palimpsest-path) (buffer-private-folder buffer))))
     (when folder
-      (setf (buffer-local buffer 'palimpsest-folder) nil)
-      ;; a revision or log opened from the report goes with it, its file about to go
       (dolist (other (buffer-list))
         (let ((file (shown-file other)))
-          (when (and file (not (eq other buffer)) (inside-folder-p (native file) folder))
-            (kill-buffer other))))
-      (make-guarded-thread
-       (lambda ()
-         (loop while (and job (job-running-p job)) do (sleep 0.2))
-         (ignore-errors (delete-tree folder)))
-       :name "tuatara palimpsest deleted"))))
+          (when (and file (not (eq other buffer)) (path-within-p (native file) folder))
+            (kill-buffer other)))))))
 
 ;;; Saving the revisions, their logs and the report
 
-(defun folder-name (path)
-  "PATH, a folder's native name, ending in one /."
-  (concatenate 'string (string-right-trim "/" path) "/"))
-
-(defun inside-folder-p (path folder)
-  "True when PATH is FOLDER or within it, both native names."
-  (let ((path (folder-name path)) (folder (folder-name folder)))
-    (and (<= (length folder) (length path)) (string= folder path :end2 (length folder)))))
-
 (defun report-file-name (analysis)
   "The name the report on ANALYSIS's PDF is written under: NAME-revision-report.txt."
-  (let* ((name (analysis-name analysis))
-         (stem (if (uiop:string-suffix-p (string-downcase name) ".pdf") (subseq name 0 (- (length name) 4)) name)))
-    (format nil "~a-revision-report.txt" stem)))
+  (format nil "~a-revision-report.txt" (native-file-stem (analysis-name analysis))))
 
 (defun saved-names (analysis)
   "The files saving ANALYSIS makes, each (SOURCE NAME SUM): each revision's PDF
@@ -454,12 +425,12 @@ in words; NIL when they can."
   (let ((evidence (parent-path (analysis-path analysis)))
         (cache (private-cache-directory "palimpsest/")))
     (cond ((notany #'first (analysis-files analysis)) "no revision was written to save")
-          ((string= (folder-name folder) (folder-name evidence))
+          ((string= (slash-ended folder) (slash-ended evidence))
            "it is the folder of the PDF examined: nothing is written beside the evidence")
-          ((inside-folder-p folder cache) "it is within palimpsest's own folder in the cache, which is cleared")
+          ((path-within-p folder cache) "it is within palimpsest's own folder in the cache, which is cleared")
           ((and (path-kind folder) (not (eq :directory (path-kind folder)))) "it is not a folder")
           (t (let ((there (loop for (nil name) in (saved-names analysis)
-                                when (path-kind (path-join (folder-name folder) name) :follow nil) collect name)))
+                                when (path-kind (path-join folder name) :follow nil) collect name)))
                (and there (format nil "~{~a~^, ~} ~:[is~;are~] there already: nothing is written over" there (rest there))))))))
 
 (defun save-copies (analysis folder &key (cancel (list nil)))
@@ -467,7 +438,7 @@ in words; NIL when they can."
 and write the report there (REPORT-FILE-NAME), ending with where each copy is and
 its SHA-256, each checked against its original. Returns what was saved, each
 \(NAME SHA-256); an error naming the first copy whose sum differs."
-  (let ((folder (folder-name folder)) (saved '()))
+  (let ((folder (slash-ended folder)) (saved '()))
     (ensure-directories-exist (sb-ext:parse-native-namestring folder))
     (loop for (source name sum) in (saved-names analysis)
           when source
@@ -479,7 +450,7 @@ its SHA-256, each checked against its original. Returns what was saved, each
                      (error "the copy of ~a at ~a does not have its original's SHA-256" name target))
                    (push (list name copy) saved))))
     (let ((report (path-join folder (report-file-name analysis))))
-      (write-file-text report
+      (write-new-file report
                        (with-output-to-string (s)
                          (write-string (first (analysis-shown analysis)) s)
                          (format s "~%* Saved~%~%Saved to ~a on ~a.~%Each copy's SHA-256, checked against its original:~%~%"
@@ -541,7 +512,7 @@ and which are there is said. Copied in the background."
 (defun write-report (analysis target)
   "Write the report on ANALYSIS's PDF as text to TARGET, a native name not
 there yet; returns its SHA-256."
-  (write-file-text target (first (analysis-shown analysis)))
+  (write-new-file target (first (analysis-shown analysis)))
   (file-sha256 target))
 
 (define-command palimpsest-write-report ()
@@ -552,7 +523,7 @@ written over, and say its SHA-256."
     (if (null analysis)
         (message "The report is not ready yet")
         (let ((target (read-new-native-path "Write the report to: "
-                                            :initial (abbreviated-path (path-join (folder-name (parent-path (analysis-path analysis)))
+                                            :initial (abbreviated-path (path-join (parent-path (analysis-path analysis))
                                                                                   (report-file-name analysis))))))
           (when target
             (if (path-kind target :follow nil)
@@ -572,16 +543,14 @@ revision, or it could not be written."
 
 (defun log-beside (target)
   "The name of the log written beside TARGET, a PDF's native name: its name with .log for .pdf."
-  (let ((name (native-file-name target)))
-    (path-join (folder-name (parent-path target))
-               (concatenate 'string (if (uiop:string-suffix-p (string-downcase name) ".pdf") (subseq name 0 (- (length name) 4)) name) ".log"))))
+  (path-join (parent-path target) (concatenate 'string (native-file-stem target) ".log")))
 
 (defun revision-refusal (analysis target)
   "Why a revision cannot be written as TARGET, a PDF's native name, in words;
 NIL when it can."
   (declare (ignore analysis))
   (let ((folder (parent-path target)) (log (log-beside target)))
-    (cond ((inside-folder-p folder (private-cache-directory "palimpsest/"))
+    (cond ((path-within-p folder (private-cache-directory "palimpsest/"))
            "it is within palimpsest's own folder in the cache, which is cleared")
           ((path-kind target :follow nil) (format nil "~a is there already: nothing is written over" (native-file-name target)))
           ((path-kind log :follow nil) (format nil "~a is there already: nothing is written over" (native-file-name log))))))
@@ -603,7 +572,7 @@ NIL when it can."
 \(LOG-BESIDE), each copy's SHA-256 checked against its original. Returns the
 PDF copy's SHA-256; an error when a sum differs."
   (multiple-value-bind (file log sum) (revision-files analysis number)
-    (ensure-directories-exist (sb-ext:parse-native-namestring (folder-name (parent-path target))))
+    (ensure-directories-exist (sb-ext:parse-native-namestring (slash-ended (parent-path target))))
     (loop for (source copy original) in (list (list file target sum) (list log (log-beside target) nil))
           do (unless (copy-regular-file source copy :cancel cancel) (job-check-stop))
              (let ((expected (or original (file-sha256 source :cancel cancel))))
@@ -658,10 +627,8 @@ file as it stood after that save: \\[palimpsest] on it finds the saves before."
                  (cond ((null number))
                        ((null (revision-files analysis number))
                         (message "Revision ~d of ~a could not be written out, so it cannot be copied" number (analysis-name analysis)))
-                       (t (let* ((name (analysis-name analysis))
-                                 (stem (if (uiop:string-suffix-p (string-downcase name) ".pdf") (subseq name 0 (- (length name) 4)) name))
-                                 (offered (path-join (folder-name (parent-path (analysis-path analysis)))
-                                                     (format nil "~a-revision-~d.pdf" stem number)))
+                       (t (let* ((offered (path-join (parent-path (analysis-path analysis))
+                                                     (format nil "~a-revision-~d.pdf" (native-file-stem (analysis-name analysis)) number)))
                                  (target (read-new-native-path (format nil "Write revision ~d to: " number) :initial (abbreviated-path offered))))
                             (when target
                               (let ((refusal (revision-refusal analysis target)))
@@ -726,9 +693,8 @@ as text or (with HEX, or when it is not text) as a hex dump."
 
 (defun show-object (analysis revision number &key hex)
   "Show the object NUMBER as REVISION of ANALYSIS's PDF has it in a buffer of its own, read only (OBJECT-TEXT)."
-  (let* ((name (format nil "*Palimpsest: ~a object ~d, revision ~d*" (analysis-name analysis) number (1+ (revision-index revision))))
-         (buffer (or (find-buffer name) (make-buffer name))))
-    (set-major-mode buffer 'palimpsest-object-mode)
+  (let ((buffer (buffer-in-mode (format nil "*Palimpsest: ~a object ~d, revision ~d*" (analysis-name analysis) number (1+ (revision-index revision)))
+                                'palimpsest-object-mode)))
     (setf (buffer-local buffer :read-only) t)
     (set-made-text buffer (object-text analysis revision number :hex hex))
     (setf (buffer-point buffer) 0)

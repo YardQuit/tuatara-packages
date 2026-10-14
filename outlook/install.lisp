@@ -11,8 +11,8 @@
 
 (defun install-outlook ()
   "Have messages and mailboxes visited shown as such (MAIL-VISIT,
-MAILBOX-VISIT) and previewed in rimu, their keys bound, check-health told
-what reads them, and a mailbox's messages deleted with its list."
+MAILBOX-VISIT) and previewed in rimu, their keys bound, and check-health told
+what reads them."
   (buttons-in-mode 'mail-view-mode "a message (an Outlook item, a saved mail, a message of a mailbox)")
   (define-key (mode-keymap 'mail-view-mode) "O" 'mail-open-attachment-outside)
   (define-key (mode-keymap 'mail-view-mode) "T" 'mail-view-file-text)
@@ -23,7 +23,6 @@ what reads them, and a mailbox's messages deleted with its list."
   (pushnew 'mail-visit *file-views*)
   (pushnew 'mailbox-visit *file-views*)
   (pushnew 'outlook-preview-text *preview-text-functions*)
-  (pushnew 'outlook-health-words *health-decoder-functions*)
-  (pushnew 'mailbox-forget *kill-buffer-functions*))
+  (pushnew 'outlook-health-words *health-decoder-functions*))
 
 (install-outlook)

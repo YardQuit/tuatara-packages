@@ -35,6 +35,12 @@ not read; a message of parts within parts is read as deep as twice this.")
   "The most seconds readpst may take reading a mailbox (.pst, .ost): an hour as
 standard, after which it is stopped and what it wrote by then is listed.")
 
+(define-package-setting *outlook-search-text-limit* (* 16 1024 1024)
+  "The most characters of a message of a mailbox (.pst, .ost) its list's
+search looks through: its headers, the text of its text parts and its
+attachments' names, 16 million as standard. A larger message is searched
+as far as that, and the list says how many were.")
+
 (define-package-setting *outlook-mailbox-space* (* 32 1024 1024 1024)
   "The most octets readpst may write reading a mailbox (.pst, .ost), its
 messages in your cache directory: 32 GB as standard. It is stopped there, as

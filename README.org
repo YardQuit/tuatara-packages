@@ -82,6 +82,52 @@ helpers, and in its toolbox when there is one. The packages follow Tuatara's
 conventions (its =HACKING.org=): a docstring on every definition, New Zealand
 English, one way for each kind of thing.
 
+** What Tuatara gives a package
+
+A package uses what Tuatara already has rather than writing its own copy.
+When it needs a helper Tuatara has but does not export, the helper is
+exported (added to =lisp/api.lisp=), not copied. These are the ones a
+package most often needs:
+
+- Scratch files :: a buffer that needs a folder of its own for its working
+  files asks for one when it is made, =(reading-buffer ... :private-folder
+  "NAME/")=, and =buffer-private-folder= names it. It lies in Tuatara's
+  private cache, readable by you alone, and is deleted when the buffer is
+  killed, once the buffer's background jobs have ended.
+- Files kept :: a file written for keeping (a report, a copy taken out) is
+  made with =write-new-file=: read-only (0400) from the moment it is
+  created, never written over a file or a link already there.
+  =write-private-copy= makes a private copy of a file in the cache.
+- Paths :: =native=, =expand-path=, =parent-path=, =path-join=,
+  =slash-ended=, =path-within-p= (inside a folder, =..= taken into
+  account), =native-file-name=, =native-file-stem=, =native-file-type=.
+- XML :: =xml-parse= (bounded in depth and size), then =xml-name=,
+  =xml-attribute=, =xml-children=, =xml-child=, =xml-local-name=,
+  =xml-local-children=, =xml-find-all= and =xml-all-text= to walk the tree.
+- Octets, text and dates :: the type =octets= and its readers,
+  =string-octets=, =octets-string=, =utf-16-text=; =time-words=,
+  =utc-time-words=, =iso-date-time=, =format-time=.
+- Comparing :: =line-diff= gives the lines removed and added between two
+  lists of lines, in little memory however long they are.
+- Lines of a large file :: =rewrite-lines= gives each line of a region to a
+  function that keeps, changes or deletes it: in the background on every
+  core for a file of gigabytes, edits made meanwhile kept, one step to undo.
+  =selected-lines= gives the region; =csv-field-spans=, =csv-value-bounds=
+  and =csv-field-value= read fields as Tuatara's CSV mode does.
+- Background work :: =start-job-thread=, =job-check-stop= and
+  =running-percent=: the editor never waits on a package.
+- Lists narrowed by a search :: any list made with =render-pieces= and its
+  entries is narrowed by =C-x / s= (=search-filter-regex=), the filters
+  stacking; =set-search-filtering= gives more text of each entry to match
+  than its line (matched in the background), names a list's headings, and
+  has =C-s= narrow the list. =search-filters= and =light-search-filters= give
+  the filters kept and light their matches where an entry is opened.
+- Programs from outside :: =sandbox-run= and =run-on-copies= run a program
+  shut in, on copies of the files, never on the files themselves.
+
+The whole list is Tuatara's =lisp/api.lisp=; each name's help (=C-h f=)
+says what it is for.
+
 * Credits
 
 - garamond :: made from the Emacs package of the same name, by the same author

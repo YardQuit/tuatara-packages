@@ -15,7 +15,7 @@ report ask first when its revisions were not saved, then delete them."
   (define-key (mode-keymap 'palimpsest-mode) "s" 'palimpsest-save)
   (define-key (mode-keymap 'palimpsest-mode) "w" 'palimpsest-write-revision)
   (define-key (mode-keymap 'palimpsest-mode) "C-x C-w" 'palimpsest-write-report)
-  (commands-for-mode 'palimpsest-mode "the report on a PDF" 'palimpsest-show-object 'palimpsest-save)
+  (commands-for-mode 'palimpsest-mode "the report on a PDF" 'palimpsest-show-object 'palimpsest-save 'palimpsest-write-report)
   (pushnew 'palimpsest-close-query *kill-buffer-query-functions*)
   (pushnew 'palimpsest-forget *kill-buffer-functions*))
 

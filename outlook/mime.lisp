@@ -225,20 +225,21 @@ is never found."
                  (push (mime-read octets :start part-start :end (max part-start part-end) :depth (1+ depth)) parts)))
       (nreverse parts))))
 
-(defun mime-part-content (part)
+(defun mime-part-content (part &key (most *outlook-largest-file*))
   "The octets of PART's body, its transfer encoding undone (base64,
-quoted-printable); at most *OUTLOOK-LARGEST-FILE* of them read."
+quoted-printable); at most MOST of them read, *OUTLOOK-LARGEST-FILE* unless
+given."
   (let* ((octets (mime-part-octets part))
          (start (mime-part-body-start part))
-         (end (min (mime-part-body-end part) (+ start *outlook-largest-file*)))
+         (end (min (mime-part-body-end part) (+ start most)))
          (encoding (string-downcase (string-trim " " (or (mime-header part "content-transfer-encoding") "")))))
     (cond ((string= encoding "base64") (base64-octets octets :start start :end end))
           ((string= encoding "quoted-printable") (mime-quoted-printable-octets octets :start start :end end))
           (t (subseq octets start end)))))
 
-(defun mime-part-text (part)
-  "PART's body as text, in its charset."
-  (mail-decode (mime-part-content part) (cdr (assoc "charset" (mime-part-parameters part) :test #'string=))))
+(defun mime-part-text (part &key (most *outlook-largest-file*))
+  "PART's body as text, in its charset, from at most MOST octets of it as written."
+  (mail-decode (mime-part-content part :most most) (cdr (assoc "charset" (mime-part-parameters part) :test #'string=))))
 
 (defun mime-leaves (part)
   "The parts of PART that are made of no others, in order; a part that is a

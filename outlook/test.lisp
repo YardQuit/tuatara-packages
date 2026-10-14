@@ -560,6 +560,128 @@ Returns the frontend and the editor."
           (true (outlook::mailbox-item-p item)))
       (tuatara.buffer:kill-buffer buffer))))
 
+;;; A mailbox's list narrowed by its messages' headers and contents
+
+(defun mailbox-search-test-messages (out)
+  "Write into OUT, as readpst would, the messages the search of a mailbox's
+list is tried on: a header not shown in the list, bodies quoted-printable and
+base64, an attachment's name, and one larger than the search looks through."
+  (flet ((put (name text) (put-test-file (merge-pathnames (concatenate 'string "Outlook Data File/Inbox/" name) out) text)))
+    (put "1.eml" (format nil "From: Kea <kea@example.org>~%Subject: First~%X-Case-Number: walrus-7~%~%nothing here~%"))
+    (put "2.eml" (format nil "From: Ruru <ruru@example.org>~%Subject: Second~%Content-Type: text/plain; charset=utf-8~%~
+                              Content-Transfer-Encoding: quoted-printable~%~%Caf=C3=A9 and a gan=~%net seen~%"))
+    (put "3.eml" (format nil "From: Tui <tui@example.org>~%Subject: Third~%Content-Type: text/plain~%~
+                              Content-Transfer-Encoding: base64~%~%dGhlIGFsYmF0cm9zcyBmbGllcw==~%"))
+    (put "4.eml" (format nil "From: Weka <weka@example.org>~%Subject: Fourth~%MIME-Version: 1.0~%~
+                              Content-Type: multipart/mixed; boundary=\"b\"~%~%--b~%Content-Type: text/plain~%~%see attached~%~
+                              --b~%Content-Type: application/pdf; name=\"invoice-2026.pdf\"~%Content-Transfer-Encoding: base64~%~%~
+                              JVBERi0xLjQK~%--b--~%"))
+    (put "5.eml" (format nil "From: Hoiho <hoiho@example.org>~%Subject: Fifth~%~%~a petrel~%" (make-string 400 :initial-element #\x)))))
+
+(defun mailbox-search-test-list (dir)
+  "The list of the mailbox MAILBOX-SEARCH-TEST-MESSAGES writes in DIR, read
+for it and its messages' text written as the listing job writes it, with
+*OUTLOOK-SEARCH-TEXT-LIMIT* small enough that the fifth is too large."
+  (let* ((out (merge-pathnames "out/" dir))
+         (texts (merge-pathnames "text/" dir))
+         (pst (write-test-octets (merge-pathnames "archive.pst" dir) (sb-ext:string-to-octets "!BDN    SM" :external-format :latin-1)))
+         (buffer (tuatara.buffer:make-buffer (tuatara.buffer:unique-buffer-name "archive.pst (mailbox)")))
+         (job (outlook::make-mailbox-job buffer pst (namestring out) (namestring texts))))
+    (mailbox-search-test-messages out)
+    (ensure-directories-exist texts)
+    (let ((tuatara-user:*outlook-search-text-limit* 300))
+      (outlook::mailbox-list job))
+    (tuatara.modes:set-major-mode buffer 'outlook::mailbox-mode)
+    (outlook::mailbox-render buffer job)
+    buffer))
+
+(defun mailbox-subjects (buffer)
+  "The subjects of the messages BUFFER, a mailbox's list, shows."
+  (loop for line in (uiop:split-string (tuatara.buffer:buffer-string buffer) :separator '(#\Newline))
+        for found = (find-if (lambda (subject) (search subject line)) '("First" "Second" "Third" "Fourth" "Fifth"))
+        when (and found (not (search "iltered by" line))) collect found))
+
+(defun wait-for-mailbox-search ()
+  "Wait, a few seconds at most, till no list is being filtered in the background."
+  (let ((until (+ (get-internal-real-time) (* 10 internal-time-units-per-second))))
+    (loop while (and (some (lambda (job) (and (tuatara.defaults::search-filter-job-p job) (tuatara.runtime:job-running-p job)))
+                           tuatara.runtime:*jobs*)
+                     (< (get-internal-real-time) until))
+          do (sleep 0.01))))
+
+(defun mailbox-search-session (list keys)
+  "Type KEYS, after showing LIST, a mailbox's list, in an editor session:
+:SEARCHED among them waits for the search in the background and lets the
+editor take it in, :LOOK keeps the subjects shown there. Returns the editor
+and the subjects kept."
+  (let ((seen nil))
+    (multiple-value-bind (f editor)
+        (tuatara.tests::run-keys
+         (list* (lambda () (tuatara:show-buffer list))
+                (loop for key in keys
+                      append (case key
+                               (:searched (list #'wait-for-mailbox-search :tick))
+                               (:look (list (lambda () (setf seen (mailbox-subjects list)))))
+                               (t (list key)))))
+         :width 140 :height 30)
+      (declare (ignore f))
+      (values editor seen))))
+
+(define-test (outlook mailbox-searched)
+  (with-test-directory (dir)
+    (let ((list (mailbox-search-test-list dir)))
+      (is equal '("First" "Second" "Third" "Fourth" "Fifth") (mailbox-subjects list))
+      ;; the text written for each message: every header, the text parts decoded, attachments by name
+      (let ((texts (loop for entry in (tuatara.buffer:buffer-local list 'tuatara.defaults::list-entries)
+                         when (outlook::mailbox-item-p entry) collect (outlook::mailbox-item-search-text entry nil))))
+        (has (first texts) "x-case-number: walrus-7")
+        (has (second texts) "Café and a gannet seen")
+        (has (third texts) "the albatross flies")
+        (has (fourth texts) "invoice-2026.pdf")
+        (false (search "PDF-1" (fourth texts))))
+      (has (tuatara.buffer:buffer-string list) "1 message too large to be searched whole")
+      (flet ((narrowed (pattern)
+               (nth-value 1 (mailbox-search-session list (list (format nil "C-s ~a" (tuatara.tests::rimu-typed pattern)) :searched :look)))))
+        ;; a header the list does not show
+        (is equal '("First") (narrowed "walrus-7"))
+        ;; quoted-printable, its soft line break joined and its UTF-8 read; base64
+        (is equal '("Second") (narrowed "gannet"))
+        (is equal '("Third") (narrowed "albatross"))
+        ;; an attachment's name, never its contents
+        (is equal '("Fourth") (narrowed "invoice-20"))
+        (is equal '() (narrowed "PDF-1"))
+        ;; past what the search looks through in a message too large
+        (is equal '() (narrowed "petrel"))
+        ;; headers matched by a regular expression, case ignored
+        (is equal '("Second" "Third") (narrowed "^from: (ruru|tui)")))
+      ;; C-g brings the whole list back
+      (multiple-value-bind (editor seen) (mailbox-search-session list '("C-s w a l r u s" :searched :look "C-g"))
+        (declare (ignore editor))
+        (is equal '("First") seen)
+        (is equal '("First" "Second" "Third" "Fourth" "Fifth") (mailbox-subjects list)))
+      ;; kept with RET, a second search narrows what the first left; then all taken away
+      (mailbox-search-session list '("C-s e e n RET" :searched "C-s a" :searched "RET"))
+      (is equal '("Second") (mailbox-subjects list))
+      (is equal '("een" "a") (mapcar #'tuatara:search-filter-string (tuatara:search-filters list)))
+      (mailbox-search-session list '("C-x / r"))
+      (is equal '("First" "Second" "Third" "Fourth" "Fifth") (mailbox-subjects list))
+      ;; RET opens the message on the line of the narrowed list, the filter's matches lit in it
+      (multiple-value-bind (editor) (mailbox-search-session
+                                     list (list "C-s a l b a" :searched "RET"
+                                                (lambda ()
+                                                  (setf (tuatara.buffer:buffer-point list)
+                                                        (tuatara.buffer:buffer-goto-line
+                                                         list (position-if (lambda (line) (search "Third" line))
+                                                                           (uiop:split-string (tuatara.buffer:buffer-string list)
+                                                                                              :separator '(#\Newline))))))
+                                                "RET"))
+        (let ((shown (tuatara.display:window-buffer (tuatara.command:editor-window editor))))
+          (is string= "Third" (tuatara.buffer:buffer-name shown))
+          (is eq shown (cdr tuatara.defaults::*search-lit*))
+          (setf tuatara.defaults::*search-lit* nil tuatara.defaults::*search-lit-shown* nil)
+          (tuatara.buffer:kill-buffer shown)))
+      (tuatara.buffer:kill-buffer list))))
+
 (define-test (outlook mailbox-without-readpst)
   (with-test-directory (dir)
     (let ((pst (write-test-octets (merge-pathnames "archive.pst" dir)

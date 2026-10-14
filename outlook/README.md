@@ -32,7 +32,10 @@ here.
 |---|---|---|
 | A message | `O` | Opens the attachment at point in the desktop's own program for its kind, after asking: a copy only you can read, and only a kind that may be opened outside Tuatara (a picture, a PDF, a sound, a video, an Office document). That program is not shut in the sandbox. |
 | A message | `T` | Shows the message's file as its text: opened safely when the message came from a mailbox or an attachment, else as any file is opened. |
-| A mailbox | `RET` | Opens the item on the line: a message as one, read only; a contact or an appointment as its text, safely. |
+| A mailbox | `RET` | Opens the item on the line: a message as one, read only, the matches of the list's filters lit in it; a contact or an appointment as its text, safely. |
+| A mailbox | `C-s`, `C-r` | Narrows the list, as a regular expression is typed, to the messages whose headers or contents match (see Searching a mailbox). `RET` keeps the pattern as a filter, `C-g` lets the one typed go. |
+| A mailbox | `C-x / l` | Lists the filters narrowing the list, each with how many items it leaves; there `d` takes away the filter on the line and `D` all of them. |
+| A mailbox | `C-x / r` | Takes every filter away: the whole list again. |
 | Either | `q` | Closes it. |
 
 ## Mailboxes
@@ -41,6 +44,36 @@ A mailbox is read by `readpst`, of the libpst package, shut in Tuatara's
 sandbox: no network, and none of your files but the mailbox. Its messages are
 written to your cache folder. Install libpst from your system's packages
 (`readpst` on the `PATH` of the system's own program folders).
+
+## Searching a mailbox
+
+`C-s` (or `C-r`) in a mailbox's list does not move through its lines: it
+narrows the list, as the pattern is typed, to the messages it matches. A
+message matches when the pattern, a regular expression, is found in any of
+its headers (all of them, not only those the list shows: `^X-Mailer:.*Outlook`,
+`^Received:.*203\.0\.113`), in the text of any of its text parts, decoded
+from base64 or quoted-printable and from its charset (HTML as its text), or in
+an attachment's name; messages attached to it are looked through alike. Case
+is ignored while the pattern has no capital letter; `M-r` switches to
+literal text.
+
+`RET` keeps the pattern as a filter, and the list's first line says by what
+it is narrowed and how many items are left. The next `C-s` narrows what that
+filter left, so filters stack: `invoice` then `^from:.*acme` leaves the
+messages that have both. `C-g` lets go only the pattern being typed.
+`C-x / l` lists the filters, to take one away (the later ones are worked out
+again), and `C-x / r` takes them all away. `RET` on a message of the
+narrowed list opens it with the filters' matches lit.
+
+The text searched is made once, as the mailbox is listed: for each message,
+in the list's own private folder, deleted with it. Matching runs in the
+background, the mode line saying how far it has got, and starts again as the
+pattern changes; the editor goes on meanwhile, however large the mailbox. Of
+a message larger than `*outlook-search-text-limit*` only that much is
+searched, and of one larger than `*outlook-largest-file*` only its headers;
+the list says how many such messages there are. Nothing in a message is run,
+attachments other than text are never decoded, and the mailbox and what
+readpst wrote are never changed.
 
 ## Settings
 
@@ -51,6 +84,7 @@ written to your cache folder. Install libpst from your system's packages
 | `*outlook-largest-file*` | 256 MB | The most an item or saved mail, or an attachment in one, may hold to be read as a message; a larger one opens as any file. |
 | `*outlook-nesting-limit*` | `8` | How many levels of messages attached to messages are shown as messages; deeper ones are listed as not read. |
 | `*outlook-mailbox-seconds*` | `3600` | The most seconds readpst may take; it is stopped then, and what it wrote is listed. |
+| `*outlook-search-text-limit*` | 16 million | The most characters of a mailbox's message its list's search looks through; a larger one is searched that far, and the list counts them. |
 | `*outlook-mailbox-space*` | 32 GB | The most readpst may write; it is stopped there, or when the drive has less than 1 GB free. |
 
 Set them in the package's `:config`:

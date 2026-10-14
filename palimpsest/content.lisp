@@ -8,12 +8,22 @@
 ;;;; colour and render mode, and where on the page; each shape filled and
 ;;;; each picture placed, with its box. What a page draws in one revision is
 ;;;; then set beside what it drew in the revision before. Nothing is drawn:
-;;;; the operators are only followed, each page held to a count of them.
+;;;; the operators are only followed, each page and all pages together held
+;;;; to a count of them.
 
 (in-package #:palimpsest)
 
 (defparameter *most-operators* 2000000
   "The most operators of one page's content followed: past them the rest of the page is not read.")
+
+(defparameter *most-operators-in-all* 50000000
+  "The most operators followed in all the pages of a PDF, every save's pages
+together, a page read again counted again: past them the pages left are not
+read, and the report says so.")
+
+(defparameter *most-marks-kept* 1000000
+  "The most marks of pages read kept to be used again, all pages together:
+past them those kept longest are let go, and read again when needed.")
 
 (defparameter *deepest-form* 8
   "How deep form XObjects drawn within form XObjects are followed.")
@@ -371,42 +381,50 @@ MacRoman, else the standard one (read as Latin-1)."
           (t (loop for code from 160 below 256 do (setf (aref table code) (code-char code)))))
     table))
 
+(defparameter *unicode-map-most-codes* 131072
+  "Codes a font's ToUnicode CMap is read for at most, all its ranges and
+characters together: a font's codes of two octets are no more than 65,536,
+and a map made to hold billions is read no further.")
+
 (defun unicode-map (data)
   "The ToUnicode CMap DATA, decoded, as a hash table of code to text, and the
-octets a code takes (1 or 2) as a second value."
-  (let ((map (make-hash-table)) (width nil))
+octets a code takes (1 or 2) as a second value; at most
+*UNICODE-MAP-MOST-CODES* codes."
+  (let ((map (make-hash-table)) (width nil) (left *unicode-map-most-codes*))
     (flet ((code (octets) (let ((v 0)) (loop for o across octets do (setf v (+ (* v 256) o))) v))
            (text (octets) (if (and (vectorp octets) (evenp (length octets)) (plusp (length octets)))
                               (utf-16-text octets :big-endian t)
                               (and (vectorp octets) (octets-latin-1 octets)))))
-      (content-tokens
-       data (lambda (operator operands from end)
-              (declare (ignore from end))
-              (cond ((string= operator "endcodespacerange")
-                     (let ((first (find-if (lambda (o) (typep o 'octets)) operands)))
-                       (when first (setf width (length first)))))
-                    ((string= operator "endbfchar")
-                     (loop for (from to) on operands by #'cddr
-                           repeat 65536
-                           when (and (typep from 'octets) (typep to 'octets))
-                             do (setf (gethash (code from) map) (text to))))
-                    ((string= operator "endbfrange")
-                     (loop for (low high to) on operands by #'cdddr
-                           repeat 65536
-                           when (and (typep low 'octets) (typep high 'octets))
-                             do (let ((start (code low)) (end (min (code high) (+ (code low) 65535))))
-                                  (cond ((typep to 'octets)
-                                         (let ((base (copy-seq to)))
-                                           (loop for c from start to end for k from 0
-                                                 do (let ((target (copy-seq base)))
-                                                      (when (plusp (length target))
-                                                        (incf (aref target (1- (length target))) (min k 255))
-                                                        (setf (aref target (1- (length target))) (logand 255 (aref target (1- (length target))))))
-                                                      (setf (gethash c map) (text target))))))
-                                        ((listp to)
-                                         (loop for c from start to end for target in to
-                                               when (typep target 'octets) do (setf (gethash c map) (text target))))))))))
-       :limit 200000))
+      (block reading
+        (flet ((put (code target)
+                 (when (minusp (decf left)) (return-from reading))
+                 (setf (gethash code map) (text target))))
+          (content-tokens
+           data (lambda (operator operands from end)
+                  (declare (ignore from end))
+                  (cond ((string= operator "endcodespacerange")
+                         (let ((first (find-if (lambda (o) (typep o 'octets)) operands)))
+                           (when first (setf width (length first)))))
+                        ((string= operator "endbfchar")
+                         (loop for (from to) on operands by #'cddr
+                               when (and (typep from 'octets) (typep to 'octets))
+                                 do (put (code from) to)))
+                        ((string= operator "endbfrange")
+                         (loop for (low high to) on operands by #'cdddr
+                               when (and (typep low 'octets) (typep high 'octets))
+                                 do (let ((start (code low)) (end (min (code high) (+ (code low) 65535))))
+                                      (cond ((typep to 'octets)
+                                             (let ((base (copy-seq to)))
+                                               (loop for c from start to end for k from 0
+                                                     do (let ((target (copy-seq base)))
+                                                          (when (plusp (length target))
+                                                            (incf (aref target (1- (length target))) (min k 255))
+                                                            (setf (aref target (1- (length target))) (logand 255 (aref target (1- (length target))))))
+                                                          (put c target)))))
+                                            ((listp to)
+                                             (loop for c from start to end for target in to
+                                                   when (typep target 'octets) do (put c target)))))))))
+           :limit 200000))))
     (values map width)))
 
 (defun font-of (pdf revision value)
@@ -582,11 +600,23 @@ yellow black), as (red green blue); NIL for another kind."
                     (append off (set-difference all on))
                     off))))
 
+(defun note-all-operators (pdf)
+  "Note in PDF that its pages were read no further, *MOST-OPERATORS-IN-ALL* followed."
+  (note pdf "Its pages draw more than ~:d operators in all, every save's pages together (*most-operators-in-all*): the pages after were not read"
+        *most-operators-in-all*))
+
 (defun page-marks (pdf revision page)
   "What PAGE draws in REVISION, in the order drawn (a vector of MARK), and
-as a second value what could not be read of it, in words."
-  (let ((marks (make-array 0 :adjustable t :fill-pointer 0)) (problems '()) (order 0) (operators 0)
-        (hidden (hidden-layers pdf revision)))
+as a second value what could not be read of it, in words. Its operators are
+counted against *MOST-OPERATORS-IN-ALL*, and once that is reached no more
+is read: that is noted in PDF (NOTE), and nothing is drawn."
+  (let* ((marks (make-array 0 :adjustable t :fill-pointer 0)) (problems '()) (order 0) (operators 0)
+         (left (- *most-operators-in-all* (getf (pdf-cache pdf) :operators-read 0)))
+         (most (min *most-operators* left))
+         (hidden (and (plusp left) (hidden-layers pdf revision))))
+    (unless (plusp left)
+      (note-all-operators pdf)
+      (return-from page-marks (values marks '())))
     (labels
         ((run (data resources state stream source depth &optional segments)
            ;; SEGMENTS, for a page's content streams joined: each (START END NUMBER INDEX) of DATA
@@ -678,9 +708,11 @@ as a second value what could not be read of it, in words."
                (content-tokens
                 data
                 (lambda (operator operands from end)
-                  (when (> (incf operators) *most-operators*)
-                    (pushnew (format nil "page ~d draws more than ~:d operators: the rest were not read" (1+ (page-index page)) *most-operators*)
-                             problems :test #'string=)
+                  (when (> (incf operators) most)
+                    (if (< left *most-operators*)
+                        (note-all-operators pdf)
+                        (pushnew (format nil "page ~d draws more than ~:d operators: the rest were not read" (1+ (page-index page)) *most-operators*)
+                                 problems :test #'string=))
                     (return-from run))
                   (flet ((n (k) (let ((v (nth k operands))) (if (realp v) v 0))))
                     (macrolet ((is (&rest names) `(member operator ',names :test #'string=)))
@@ -768,16 +800,35 @@ as a second value what could not be read of it, in words."
                                     (incf at (1+ (length data)))))))))
         (when segments
           (run (apply #'concatenate 'octets (nreverse pieces)) (page-resources page) (make-state) 0 :page 0 (nreverse segments)))))
+    (incf (getf (pdf-cache pdf) :operators-read 0) (min operators most))
     (values marks (nreverse problems))))
 
 (defun marks-of (pdf revision page)
-  "What PAGE draws in REVISION (PAGE-MARKS), worked out once for each page of each revision."
-  (let ((cache (or (getf (pdf-cache pdf) :marks) (setf (getf (pdf-cache pdf) :marks) (make-hash-table :test 'equal)))))
-    (let ((key (list (revision-index revision) (page-index page))))
-      (values-list (or (gethash key cache)
-                       (setf (gethash key cache) (multiple-value-list (page-marks pdf revision page))))))))
+  "What PAGE draws in REVISION (PAGE-MARKS), kept to be used again while the
+pages kept draw no more than *MOST-MARKS-KEPT* marks together, those kept
+longest let go first."
+  (let* ((cache (or (getf (pdf-cache pdf) :marks) (setf (getf (pdf-cache pdf) :marks) (make-hash-table :test 'equal))))
+         (key (list (revision-index revision) (page-index page)))
+         (kept (gethash key cache)))
+    (if kept
+        (values-list kept)
+        (let* ((read (multiple-value-list (page-marks pdf revision page)))
+               (size (max 1 (length (first read))))
+               ;; the keys kept, the oldest first: (FIRST . LAST) of a list
+               (queue (or (getf (pdf-cache pdf) :marks-queue) (setf (getf (pdf-cache pdf) :marks-queue) (cons nil nil)))))
+          (when (<= size *most-marks-kept*)
+            (loop while (and (car queue) (> (+ (getf (pdf-cache pdf) :marks-kept 0) size) *most-marks-kept*))
+                  do (let ((oldest (pop (car queue))))
+                       (decf (getf (pdf-cache pdf) :marks-kept) (max 1 (length (first (gethash oldest cache)))))
+                       (remhash oldest cache)))
+            (let ((cell (list key)))
+              (if (car queue) (setf (cddr queue) cell) (setf (car queue) cell))
+              (setf (cdr queue) cell))
+            (incf (getf (pdf-cache pdf) :marks-kept 0) size)
+            (setf (gethash key cache) read))
+          (values-list read)))))
 
-;;; Text in lines, and lines compared
+;;; Text in lines
 
 (defun text-lines (marks)
   "The text MARKS show, as lines in reading order: runs on the same baseline
@@ -806,35 +857,6 @@ those apart."
         (push run line))
       (finish))
     (nreverse lines)))
-
-(defun line-diff (old new &key (limit 4000000))
-  "The lines that differ between OLD and NEW (lists of strings), each (:removed
-LINE) or (:added LINE), in order; the lines both share left out. Lists too
-long to compare line by line (more than LIMIT pairs) are compared as what is
-left once their shared beginning and end are taken off."
-  (let* ((old (coerce old 'vector)) (new (coerce new 'vector))
-         (start 0) (old-end (length old)) (new-end (length new)))
-    (loop while (and (< start old-end) (< start new-end) (string= (aref old start) (aref new start))) do (incf start))
-    (loop while (and (> old-end start) (> new-end start) (string= (aref old (1- old-end)) (aref new (1- new-end))))
-          do (decf old-end) (decf new-end))
-    (let ((a (subseq old start old-end)) (b (subseq new start new-end)))
-      (if (> (* (length a) (length b)) limit)
-          (append (map 'list (lambda (l) (list :removed l)) a) (map 'list (lambda (l) (list :added l)) b))
-          (let* ((n (length a)) (m (length b))
-                 (table (make-array (list (1+ n) (1+ m)) :element-type 'fixnum :initial-element 0)))
-            (loop for i from (1- n) downto 0
-                  do (loop for j from (1- m) downto 0
-                           do (setf (aref table i j)
-                                    (if (string= (aref a i) (aref b j))
-                                        (1+ (aref table (1+ i) (1+ j)))
-                                        (max (aref table (1+ i) j) (aref table i (1+ j)))))))
-            (let ((i 0) (j 0) (out '()))
-              (loop while (or (< i n) (< j m))
-                    do (cond ((and (< i n) (< j m) (string= (aref a i) (aref b j))) (incf i) (incf j))
-                             ((and (< i n) (or (= j m) (>= (aref table (1+ i) j) (aref table i (1+ j)))))
-                              (push (list :removed (aref a i)) out) (incf i))
-                             (t (push (list :added (aref b j)) out) (incf j))))
-              (nreverse out)))))))
 
 (defun place-words (page x y)
   "Where the point X Y is on PAGE, in words: near the top left, in the middle,
