@@ -217,7 +217,7 @@ and the marks of CANDIDATES, the photos compared, taken away."
 
 (define-command facematch-mark-master ()
   "Mark the photo on the line of this rimu list as a master photo (M), one of
-the person looked for, and go to the next line; \\<rimu-mode>\\[rimu-unmark] takes the mark away.
+the person looked for, and go to the next line; \\<rimu-mode>\\[list-unmark-entry] takes the mark away.
 Masters may be marked in any list: \\[facematch-compare] takes them all."
   (if (rimu-list-p (current-buffer))
       (rimu-mark-and-go-on *facematch-master-mark*)
@@ -253,7 +253,7 @@ with HERE the ranking is to show in this list, else in a list of its own."
                                   collect path))))
     (cond ((not (rimu-list-p buffer)) (message "Candidates are marked in a rimu list (\\[rimu]), and compared from it"))
           ((null masters) (message "No master photo is marked: \\<rimu-mode>\\[facematch-mark-master] marks one (M)"))
-          ((null candidates) (message "No candidate is marked in this directory: \\<rimu-mode>\\[rimu-mark] marks one"))
+          ((null candidates) (message "No candidate is marked in this directory: \\<rimu-mode>\\[list-mark-entry] marks one"))
           ((null (user-program-path *facematch-program*))
            (message "The facematch engine is not there: build or install it, or give its path in *facematch-program*"))
           (t (let ((confidence (if confidence-asked (facematch-read-confidence) *facematch-detection-confidence*)))
