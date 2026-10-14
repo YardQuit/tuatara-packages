@@ -23,24 +23,12 @@
 ;; made for a Tuatara whose API has these: an older one is refused at once,
 ;; rather than each command failing on a name it lacks
 (let ((missing (remove-if (lambda (name) (eq (nth-value 1 (find-symbol name '#:tuatara)) :external))
-                          '("CSV-DELIMITER" "CSV-FIELDS" "CSV-FIELD-SPANS" "CSV-FIELD-BOUNDS" "CSV-VALUE-BOUNDS" "CSV-FIELD-VALUE"
+                          '("CSV-DELIMITER" "CSV-FIELD-SPANS" "CSV-FIELD-BOUNDS" "CSV-VALUE-BOUNDS" "CSV-FIELD-VALUE" "CSV-HEADER-NAMES"
                             "COMPILE-REGEX" "SELECTED-LINES" "REWRITE-LINES"))))
   (when missing
     (error "csv-records needs a newer Tuatara, whose API has ~{~(~a~)~^, ~}: build it again from its sources" missing)))
 
 ;;; The columns asked for
-
-(defparameter *header-most-octets* (* 1024 1024)
-  "Octets of a file's first line read for its columns' names, however long it is.")
-
-(defun header-names (buffer)
-  "The names of BUFFER's columns, from its first line (its first
-*HEADER-MOST-OCTETS*), in order; a byte-order mark the file begins with is no
-part of the first."
-  (let* ((line (string-left-trim (list (code-char #xfeff))
-                                 (buffer-string buffer :start 0 :end (min (buffer-line-end buffer 0) *header-most-octets*))))
-         (fields (csv-fields line 0 (length line) (csv-delimiter buffer))))
-    (map 'list (lambda (field) (csv-field-value line (car field) (cdr field))) fields)))
 
 (defun column-index (answer names)
   "The column ANSWER names, counted from 0: a header among NAMES, a number or
@@ -56,7 +44,7 @@ answer, \"whole record\" or $*); :UNKNOWN for anything else."
 (defun read-column (buffer prompt)
   "Ask with PROMPT for a column of BUFFER, offering its header's names and the
 whole record: its index from 0, or NIL for the whole record."
-  (let* ((names (header-names buffer))
+  (let* ((names (csv-header-names buffer))
          (candidates (cons (make-candidate "whole record" :annotation "the line as it is")
                            (loop for name in names
                                  for n from 0

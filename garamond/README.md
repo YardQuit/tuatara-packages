@@ -39,14 +39,15 @@ the rest), never in code, tables, links, maths or a block's contents, as Org's
 parse or the language's syntax tree tells them; in any other language only in
 its comments. Where a language has a syntax tree that is not ready yet,
 nothing is doubled. A word whose full stop shortens it (e.g., Dr., Sept.) ends
-no sentence.
+no sentence: Tuatara's abbreviations, the ones its sentence commands and
+filling pass over, with those of your own added by
+`*extra-sentence-abbreviations*` and any of Tuatara's taken out by
+`*removed-sentence-abbreviations*` in the init file.
 
 ## Settings
 
 | Setting | Standard | What it is |
 |---|---|---|
-| `*garamond-extra-abbreviations*` | `'()` | Abbreviations of your own whose full stop ends no sentence: `'("Ph.D." "et al.")`. |
-| `*garamond-removed-abbreviations*` | `'()` | Abbreviations of the package's that should end a sentence after all: `'("St." "No.")`. |
 | `*garamond-double-space-on-typing*` | `t` | `nil` leaves typing alone; the spacing is still said in the mode line, bracketed: `(2S)`. |
 | `*garamond-persist*` | `t` | `nil` never asks to write the spacing in the file. A file that says already is kept up to date. |
 | `*garamond-follow-declarations*` | `t` | `nil` leaves `garamond-mode` off in files that say their spacing, until asked for. |
@@ -58,7 +59,7 @@ Set them in the package's `:config`:
 ```lisp
 (load-package "garamond" :source "yardquit"
   :config
-  (setf *garamond-extra-abbreviations* '("Ph.D.")))
+  (setf *garamond-mode-line* nil))
 ```
 
 ## Tests

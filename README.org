@@ -113,7 +113,17 @@ package most often needs:
   function that keeps, changes or deletes it: in the background on every
   core for a file of gigabytes, edits made meanwhile kept, one step to undo.
   =selected-lines= gives the region; =csv-field-spans=, =csv-value-bounds=
-  and =csv-field-value= read fields as Tuatara's CSV mode does.
+  and =csv-field-value= read fields as Tuatara's CSV mode does, and
+  =csv-header-names= gives the names of a CSV buffer's columns.
+- The selection and changing a buffer :: =selected-region= gives the text
+  selected, or NIL when none is; =check-writable= refuses, in Tuatara's own
+  words, to change a read-only buffer.
+- Sentences :: =sentence-end-char-p=, =sentence-closing-char-p= and
+  =abbreviation-before-p= (an abbreviation's full stop ends no sentence:
+  =*sentence-abbreviations*= and those of =*extra-sentence-abbreviations*=)
+  tell where a sentence ends as the sentence commands and filling do.
+- Sizes :: =octets-words= says a number of octets in words: 12.3 MB, or
+  with =:compact= 4.1K for a narrow column.
 - Background work :: =start-job-thread=, =job-check-stop= and
   =running-percent=: the editor never waits on a package.
 - Lists narrowed by a search :: any list made with =render-pieces= and its

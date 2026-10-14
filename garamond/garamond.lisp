@@ -25,7 +25,7 @@
 ;;;; them; in any other language, only in its comments, as its syntax tree
 ;;;; tells them. Where a language has a syntax tree and it is not ready, nothing
 ;;;; is doubled. A word whose full stop shortens it (e.g., Dr., Sept.) ends no
-;;;; sentence.
+;;;; sentence: Tuatara's abbreviations (*sentence-abbreviations*) and your own.
 
 (defpackage #:garamond
   (:use #:cl #:tuatara)
@@ -34,15 +34,6 @@
 (in-package #:garamond)
 
 ;;; Settings
-
-(define-package-setting *garamond-extra-abbreviations* '()
-  "Abbreviations of your own whose full stop ends no sentence, added to
-Tuatara's (*GARAMOND-ABBREVIATIONS*), each written as typed: '(\"Ph.D.\"
-\"et al.\" \"Inc.\"). Read afresh at every space typed.")
-
-(define-package-setting *garamond-removed-abbreviations* '()
-  "Abbreviations of Tuatara's (*GARAMOND-ABBREVIATIONS*) that should end a
-sentence after all, written as they are there: '(\"St.\" \"No.\").")
 
 (define-package-setting *garamond-double-space-on-typing* t
   "True for \\[garamond-mode] to make one space typed after a sentence's end
@@ -70,81 +61,6 @@ nothing.")
 (define-package-setting *garamond-unsuitable-modes* '(special-mode)
   "Major modes, those made from them included, \\[garamond-mode] never runs in:
 the lists, help and terminals Tuatara makes, where nobody writes prose.")
-
-;;; Abbreviations
-
-(defparameter *garamond-abbreviations*
-  '("e.g." "i.e." "cf." "viz." "vs." "etc." "al." "et seq." "ibid." "q.v."
-    "ca." "approx." "esp." "incl." "excl." "resp." "misc." "a.k.a." "ff."
-    "p." "pp." "ed." "eds." "edn." "trans." "repr." "suppl."
-    "No." "Nos." "Fig." "Figs." "Ch." "Chap." "Vol." "Vols." "Sec." "Secs."
-    "Eq." "Eqs." "Ref." "Refs." "App."
-    "Mr." "Mrs." "Ms." "Mx." "Messrs." "Dr." "Prof." "Rev." "Fr." "Msgr."
-    "Sr." "Jr." "St." "Hon." "Pres." "Gov." "Sen." "Rep." "Amb."
-    "Adm." "Capt." "Cmdr." "Col." "Cpl." "Det." "Gen." "Insp." "Lt."
-    "Maj." "Pvt." "Sgt." "Supt."
-    "Co." "Corp." "Bros." "Dept." "Univ." "Inst." "Mt." "Ft." "Ave."
-    "Blvd." "Rd." "U.S." "U.K." "U.N." "D.C."
-    "Jan." "Feb." "Mar." "Apr." "Jun." "Jul." "Aug." "Sep." "Sept."
-    "Oct." "Nov." "Dec."
-    "Mon." "Tue." "Tues." "Wed." "Weds." "Thu." "Thur." "Thurs." "Fri."
-    "Sat." "Sun."
-    "a.m." "p.m." "A.M." "P.M." "N.B." "P.S.")
-  "Tuatara's abbreviations whose full stop ends no sentence as one space is
-typed after it: Latin and editorial shorthand, bibliographic marks, forms of
-address and rank, organisations and places, the months and days, the clock.
-Degrees, company names and units (Ph.D., Inc., lb.) are not among them, as
-they end sentences as often as not: *GARAMOND-EXTRA-ABBREVIATIONS* adds them,
-*GARAMOND-REMOVED-ABBREVIATIONS* takes these out. Letter case counts, but one
-beginning with a small letter counts capitalised too (e.g. and E.g.). Of an
-abbreviation of several words, only the last may have a full stop.")
-
-(defun garamond-abbreviations-in-force ()
-  "The abbreviations that count: Tuatara's (*GARAMOND-ABBREVIATIONS*) less
-*GARAMOND-REMOVED-ABBREVIATIONS*, then *GARAMOND-EXTRA-ABBREVIATIONS*; only
-text that is not empty."
-  (remove-if-not (lambda (a) (and (stringp a) (plusp (length a))))
-                 (append (remove-if (lambda (a) (member a *garamond-removed-abbreviations* :test #'equal))
-                                    *garamond-abbreviations*)
-                         *garamond-extra-abbreviations*)))
-
-(defvar *garamond-abbreviation-scanner* nil
-  "The abbreviations in force as one pattern, with the three lists it was made
-of and how many characters the longest reaches back, (SCANNER LISTS REACH);
-made again when one of the lists is another.")
-
-(defun garamond-abbreviation-scanner ()
-  "Two values: a pattern matching text that ends in an abbreviation in force,
-after a character that is not part of a word, and how many characters back
-the longest reaches, that character included."
-  (let ((lists (list *garamond-abbreviations* *garamond-extra-abbreviations*
-                     *garamond-removed-abbreviations*)))
-    (unless (and *garamond-abbreviation-scanner* (every #'eq lists (second *garamond-abbreviation-scanner*)))
-      (let* ((in-force (garamond-abbreviations-in-force))
-             (all (append in-force
-                          (loop for a in in-force
-                                when (lower-case-p (char a 0))
-                                  collect (concatenate 'string (string (char-upcase (char a 0))) (subseq a 1))))))
-        (setf *garamond-abbreviation-scanner*
-              (list (and all (cl-ppcre:create-scanner
-                              (format nil "\\W(?:~{~a~^|~})$" (mapcar #'cl-ppcre:quote-meta-chars all))))
-                    lists
-                    (1+ (reduce #'max all :key #'length :initial-value 0))))))
-    (values (first *garamond-abbreviation-scanner*) (third *garamond-abbreviation-scanner*))))
-
-(defun garamond-abbreviation-before-p (buffer position)
-  "True when the text of BUFFER before POSITION, just after a full stop, ends
-in an abbreviation in force (GARAMOND-ABBREVIATIONS-IN-FORCE) on its line."
-  (multiple-value-bind (scanner reach) (garamond-abbreviation-scanner)
-    (when scanner
-      (let* ((line (buffer-line-start buffer position))
-             (from (loop with p = position
-                         repeat reach
-                         while (> p line)
-                         do (setf p (buffer-forward-char buffer p -1))
-                         finally (return p)))
-             (text (buffer-string buffer :start from :end position)))
-        (and (cl-ppcre:scan scanner (if (= from line) (concatenate 'string " " text) text)) t)))))
 
 ;;; Where a sentence ends
 
@@ -184,7 +100,7 @@ spaces and digits before it on its line (1. 2. 10.)."
   "After CHAR was typed into BUFFER: when it is a space after a sentence's end
 in prose, with \\[garamond-mode] on and the sentences two spaces apart, make
 the spaces there two: one more after one, those past two taken away. Not
-after an abbreviation (GARAMOND-ABBREVIATION-BEFORE-P) or a list item's
+after an abbreviation (ABBREVIATION-BEFORE-P) or a list item's
 number."
   (when (and (eql char #\Space)
              (eq buffer (current-buffer))
@@ -198,7 +114,7 @@ number."
                       finally (return p)))
            (stop (garamond-sentence-end-before buffer run)))
       (when (and stop
-                 (not (garamond-abbreviation-before-p buffer stop))
+                 (not (abbreviation-before-p buffer stop))
                  (not (garamond-enumerator-p buffer stop))
                  (prose-p buffer (buffer-forward-char buffer stop -1)))
         (let ((spaces (- end run)))
@@ -268,8 +184,8 @@ has a file that says already, or *GARAMOND-PERSIST* and the answer is yes."
   "Make BUFFER's sentences SPACES apart, 1 or 2, \\[garamond-mode] on unless it
 cannot run there; with PERSIST and a file, write it in the file's Local
 Variables: block (the buffer left modified). How the message saying so ends."
-  (when (and persist (buffer-file buffer) (buffer-local buffer :read-only))
-    (error "~a is read-only: nothing is changed" (buffer-name buffer)))
+  (when (and persist (buffer-file buffer))
+    (check-writable buffer))
   (setf (buffer-local buffer :sentence-end-double-space) (= spaces 2))
   (let ((refused (garamond-refusal buffer)))
     (unless refused (setf (buffer-local buffer :garamond) t))
@@ -339,12 +255,10 @@ prose (code, tables, links, maths) are left as they are. A count gives the
 spacing, else it is asked; whether to write it in the file is asked only for
 the whole buffer."
   (let* ((b (current-buffer))
-         (region (and (buffer-mark-active-p b)
-                      (multiple-value-list (buffer-region b))))
+         (region (selected-region b))
          (start (if region (first region) 0))
          (end (if region (second region) (buffer-size b))))
-    (when (buffer-local b :read-only)
-      (error "~a is read-only: nothing is changed" (buffer-name b)))
+    (check-writable b)
     (unless (too-large-here-p start end "Spacing sentences")
       (multiple-value-bind (spaces persist) (garamond-read-spacing (null region))
         (let* ((gaps (garamond-gaps b start end spaces))
@@ -413,7 +327,7 @@ it is zero or less."
 
 (defun garamond-report (buffer)
   "The report \\[garamond-doctor] shows of BUFFER."
-  (let ((in-force (length (garamond-abbreviations-in-force))))
+  (let ((in-force (length (sentence-abbreviations-in-force))))
     (with-output-to-string (out)
       (format out "Garamond in ~a~%~%This buffer~%" (buffer-name buffer))
       (format out "  major mode                  ~(~a~)~%" (type-of (buffer-major-mode buffer)))
@@ -431,8 +345,8 @@ it is zero or less."
       (format out "  *garamond-persist*                 ~:[nil~;t~]~%" *garamond-persist*)
       (format out "  *garamond-mode-line*               ~:[nil~;t~]~%" *garamond-mode-line*)
       (format out "  abbreviations in force             ~d (~d Tuatara's, ~d removed, ~d yours)~%"
-              in-force (length *garamond-abbreviations*)
-              (length *garamond-removed-abbreviations*) (length *garamond-extra-abbreviations*))
+              in-force (length *sentence-abbreviations*)
+              (length *removed-sentence-abbreviations*) (length *extra-sentence-abbreviations*))
       (format out "~%Diagnosis~%  ~a~%" (garamond-diagnosis buffer)))))
 
 (define-command garamond-doctor ()

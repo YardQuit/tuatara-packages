@@ -18,24 +18,11 @@ frontend, as a second value."
       (values (session-text editor) f))))
 
 (define-test (garamond abbreviations)
-  (let ((b (tuatara.buffer:make-buffer "*garamond-abbreviations*" :text "")))
-    (unwind-protect
-         (flet ((abbreviation-p (text)
-                  (tuatara.buffer:buffer-edit b (vector (tuatara.text:make-edit 0 (tuatara.buffer:buffer-size b) (tuatara.text:string-octets text))))
-                    (garamond::garamond-abbreviation-before-p b (tuatara.buffer:buffer-size b))))
-           (true (abbreviation-p "see e.g."))
-           (true (abbreviation-p "E.g."))
-           (true (abbreviation-p "(cf."))
-           (true (abbreviation-p "Ask Dr."))
-           (false (abbreviation-p "ask dr."))
-           (false (abbreviation-p "He sat."))
-           (false (abbreviation-p "Xe.g."))
-           (false (abbreviation-p "The end."))
-           (let ((tuatara-user:*garamond-extra-abbreviations* '("Inc."))
-                 (tuatara-user:*garamond-removed-abbreviations* '("St.")))
-             (true (abbreviation-p "Acme Inc."))
-             (false (abbreviation-p "Main St."))))
-      (tuatara.buffer:kill-buffer b))))
+  ;; Tuatara's abbreviations and your own end no sentence as a space is typed; one taken out does
+  (let ((tuatara-user:*extra-sentence-abbreviations* '("Inc."))
+        (tuatara-user:*removed-sentence-abbreviations* '("St.")))
+    (is string= "See Dr. Who at Acme Inc. on Main St.  Go"
+        (garamond-typed-text "text-mode" "S e e SPC D r . SPC W h o SPC a t SPC A c m e SPC I n c . SPC o n SPC M a i n SPC S t . SPC G o"))))
 
 (define-test (garamond typing-in-text)
   ;; one space typed after a sentence's end is two, more are two; not after an abbreviation or a list's number
@@ -87,6 +74,9 @@ frontend, as a second value."
       (true (tuatara.frontend.fake:fake-frame-showing f "2S")))
     (is string= (format nil "One. Two. Three! Four e.g. five.~%1.  Item.~%  Indented.~%")
         (session-text (nth-value 1 (run-keys "M-x t e x t - m o d e RET C-u 1 M-x g a r a m o n d - a d j u s t - s p a c i n g RET" :text text :width 80))))
+    ;; an empty selection is none: the whole buffer is adjusted
+    (is string= (format nil "One.  Two.  Three!  Four e.g.  five.~%1.  Item.~%  Indented.~%")
+        (session-text (nth-value 1 (run-keys "M-x t e x t - m o d e RET C-SPC C-u 2 M-x g a r a m o n d - a d j u s t - s p a c i n g RET" :text text :width 80))))
     ;; in Org, a source block's text is left as it is
     (is string= (format nil "A.  B.~%#+begin_src sh~%echo a. b~%#+end_src~%")
         (session-text (nth-value 1 (run-keys "M-x o r g - m o d e RET C-u 2 M-x g a r a m o n d - a d j u s t - s p a c i n g RET"

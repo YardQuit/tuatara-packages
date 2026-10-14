@@ -185,11 +185,9 @@ without one the line point is on and a return, so that the shell runs it.
 Asked which window when there are several."
   (let* ((socket (kitty-socket-or-error))
          (buffer (current-buffer))
-         (selected (multiple-value-bind (start end) (buffer-region buffer)
-                     (and start (< start end) (buffer-mark-active-p buffer))))
+         (selected (selected-region buffer))
          (text (if selected
-                   (multiple-value-bind (start end) (buffer-region buffer)
-                     (buffer-string buffer :start start :end end))
+                   (buffer-string buffer :start (first selected) :end (second selected))
                    (buffer-line-text buffer (buffer-line-start buffer (buffer-point buffer))))))
     ;; what a file holds is sent as text, never as keys: a carriage return or an
     ;; escape in it could run more than is shown
