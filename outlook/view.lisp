@@ -186,13 +186,17 @@ of its own called NAME (made unique)."
   (show-reading-result job (mail-read-job-path job) (lambda (buffer) (mail-render buffer (mail-read-job-mail job)))
                        "~a could not be read as a message: ~a~%"))
 
-(defun mail-view-buffer (native &key safe name)
+(defvar *mail-previews* '()
+  "The buffers showing a message in the preview beside a mailbox's list.")
+
+(defun mail-view-buffer (native &key safe name preview)
   "The buffer showing the message in the file at NATIVE (an Outlook item or a
 saved mail), read in the background when there is none yet; called NAME, or
 by the file's name; SAFE when the file is to be shown as text safely
-\(\\[mail-view-file-text])."
-  (let ((name (or (mail-line name) (native-file-name native))))
-    (reading-buffer '*mail-views* (lambda (b) (car (buffer-local b 'mail-source))) native
+\(\\[mail-view-file-text]). With PREVIEW, one of its own for the preview beside
+a mailbox's list (*MAIL-PREVIEWS*), its name saying so."
+  (let ((name (format nil "~a~:[~; (preview)~]" (or (mail-line name) (native-file-name native)) preview)))
+    (reading-buffer (if preview '*mail-previews* '*mail-views*) (lambda (b) (car (buffer-local b 'mail-source))) native
                     name (format nil "Reading ~a...~%" name) 'mail-view-mode
                     (lambda (buffer)
                       (setf (buffer-local buffer 'mail-source) (cons native safe))

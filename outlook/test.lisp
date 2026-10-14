@@ -848,6 +848,14 @@ and the subjects kept."
       (false (search "Second" after-fold))
       (tuatara.buffer:kill-buffer list))))
 
+(defun wait-for-mail-reading ()
+  "Wait, a few seconds at most, till no message is being read."
+  (let ((until (+ (get-internal-real-time) (* 10 internal-time-units-per-second))))
+    (loop while (and (some (lambda (job) (and (outlook::mail-read-job-p job) (tuatara.runtime:job-running-p job)))
+                           tuatara.runtime:*jobs*)
+                     (< (get-internal-real-time) until))
+          do (sleep 0.01))))
+
 (defun wait-for-mailbox-export ()
   "Wait, a few seconds at most, till no messages are being copied out of a mailbox."
   (let ((until (+ (get-internal-real-time) (* 10 internal-time-units-per-second))))
@@ -899,8 +907,9 @@ and the subjects kept."
                    "j l" (lambda () (setf opened (tuatara.buffer:buffer-name (tuatara:current-buffer))))
                    "h" (lambda () (setf moved (tuatara:current-buffer)))
                    "q" (lambda () (setf back (tuatara:current-buffer)))
-                   ;; C copies the one marked out as asked, into a folder made for it
-                   (format nil "C m s g RET C-a C-k ~a C-j" (tuatara.tests::rimu-typed copies))
+                   ;; C opens the menu of copying out: m copies the one marked as an Outlook item,
+                   ;; into a folder asked for, made for it
+                   (format nil "C m C-a C-k ~a C-j" (tuatara.tests::rimu-typed copies))
                    #'wait-for-mailbox-export :tick)
              :width 140 :height 30)
             (is equal (list first) marked)
@@ -936,6 +945,29 @@ and the subjects kept."
               (outlook::mailbox-export-work job)
               (is = 0 (outlook::mailbox-export-job-copied job))
               (has (cdr (first (outlook::mailbox-export-job-not-copied job))) "no Outlook item"))))
+        ;; P: the message on the line beside the list, read as any message is into a buffer
+        ;; of the preview's own; the next one's as the cursor moves on; P again, none
+        (let ((shown '()) (after t))
+          (flet ((note-preview ()
+                   (let* ((preview tuatara.defaults::*entry-preview*)
+                          (buffer (and preview (tuatara.defaults::side-preview-buffer preview))))
+                     (push (and buffer (list (tuatara.buffer:buffer-name buffer) (tuatara.buffer:buffer-string buffer)
+                                             (type-of (tuatara.modes:buffer-major-mode buffer))))
+                           shown))))
+            (tuatara.tests::run-keys
+             (list (lambda () (setf (tuatara.buffer:buffer-local list :list-preview) nil) (tuatara:show-buffer list))
+                   "g g n P" #'wait-for-mail-reading :tick :tick #'note-preview
+                   "n" #'wait-for-mail-reading :tick :tick #'note-preview
+                   "P" (lambda () (setf after tuatara.defaults::*entry-preview*)))
+             :width 140 :height 30))
+          (destructuring-bind (second first) shown
+            (is string= "Re: a/b? (preview)" (first first))
+            (has (second first) "one")
+            (is eq 'outlook::mail-view-mode (third first))
+            (is string= "Second (preview)" (first second))
+            (has (second second) "two"))
+          (false after)
+          (false (find-if (lambda (b) (search "(preview)" (tuatara.buffer:buffer-name b))) tuatara.buffer:*buffers*)))
         ;; h, answered yes: the list closed, its folder listed by rimu, point on the mailbox
         (let ((folder nil))
           (tuatara.tests::run-keys

@@ -39,7 +39,8 @@ here.
 | A mailbox | `n`, `p` | Go to the next item and the one before, over the folders' lines. |
 | A mailbox | `TAB`, `S-TAB` | Folds or unfolds the folder the line is in; every folder. |
 | A mailbox | `m`, `u`, `U`, `t` | Marks the message on the line (`>`) and moves down; takes its mark off; takes every mark off; marks those shown that are not marked and unmarks those marked, as in rimu. A count marks as many. |
-| A mailbox | `C` | Copies the messages marked, or the one on the line, out into a folder: asks first for the format, `eml` (saved mail) or `msg` (Outlook item), then for the folder (made when it is not there). |
+| A mailbox | `C` | Opens the menu of copying out the messages marked, or the one on the line: `e` as saved mail (`.eml`), `m` as Outlook items (`.msg`), then asks for the folder (made when it is not there). `C-h` there lists the menu. |
+| A mailbox | `P` | Turns off and on the preview: the message on the line shown in a window beside the list, read as any message is, following the cursor (see Seeing a message beside the list). |
 | A mailbox | `C-s`, `C-r` | Narrows the list, as a regular expression is typed, to the messages whose headers or contents match (see Searching a mailbox). `RET` keeps the pattern as a filter, `C-g` lets the one typed go. |
 | A mailbox | `C-x / l` | Lists the filters narrowing the list, each with how many items it leaves; there `d` takes away the filter on the line and `D` all of them. |
 | A mailbox | `C-x / r` | Takes every filter away: the whole list again. |
@@ -77,12 +78,24 @@ your fonts, read only. Install it from your system's packages: `weasyprint`
 on Fedora, Debian and Ubuntu, `python-weasyprint` on Arch, `python3-weasyprint`
 on openSUSE. The pages need poppler's `pdftoppm` too, as any PDF does.
 
+## Seeing a message beside the list
+
+As the cursor goes from line to line of a mailbox's list, the message on the
+line is shown in a window beside it, on its right when there is room, else
+below it, as rimu shows the file on its line. It is read in the background,
+as a message opened is, by Tuatara itself: nothing in it is run and nothing
+it points to is fetched. `P` turns the preview off in that list and on again;
+`*outlook-preview*` says whether new lists have it. The preview goes, its
+buffers with it, when the cursor leaves the list and the preview.
+
 ## Copying messages out
 
-`C` copies the messages marked with `m` (or, with none marked, the one on the
-line) out of the mailbox into a folder you choose, each a file of its own:
-as saved mail (`.eml`, internet mail as readpst wrote it) or as Outlook items
-(`.msg`, written by readpst from the mailbox itself, beside each `.eml`). A
+`C` opens a menu of copying out the messages marked with `m` (or, with none
+marked, the one on the line) into a folder you choose, each a file of its
+own: `e` as saved mail (`.eml`, internet mail as readpst wrote it), `m` as
+Outlook items (`.msg`, written by readpst from the mailbox itself, beside
+each `.eml`); `M-x mailbox-export-eml` and `M-x mailbox-export-msg` do the
+same without the menu. A
 copy is named by when the message was sent and its subject,
 `2001-04-30 2031 unit for sale.msg`; a name already taken gets `(2)`, `(3)`
 and so on, and nothing in the folder is overwritten. Characters a name cannot
@@ -133,6 +146,7 @@ readpst wrote are never changed.
 | `*outlook-mailbox-seconds*` | `3600` | The most seconds readpst may take; it is stopped then, and what it wrote is listed. |
 | `*outlook-search-text-limit*` | 16 million | The most characters of a mailbox's message its list's search looks through; a larger one is searched that far, and the list counts them. |
 | `*outlook-mailbox-space*` | 32 GB | The most readpst may write; it is stopped there, or when the drive has less than 1 GB free. |
+| `*outlook-preview*` | `t` | Shows the message on the line beside a mailbox's list; `nil` leaves it off until `P` turns it on in one list. |
 
 Set them in the package's `:config`:
 

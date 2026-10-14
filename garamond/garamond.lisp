@@ -302,24 +302,19 @@ it is zero or less."
 
 ;;; Why nothing happens
 
-(define-major-mode garamond-doctor-mode special-mode
-  "The report of what Garamond does in a buffer and why (\\[garamond-doctor]):
-\\<garamond-doctor-mode>\\[quit-window] closes it."
-  :lighter "Garamond" :interactive nil)
-
 (defun garamond-diagnosis (buffer)
   "The likeliest reason for what Garamond does in BUFFER, in a sentence or two."
   (let ((declared (garamond-declared-p buffer)) (refused (garamond-refusal buffer)))
     (cond ((and (not (garamond-on-p buffer)) refused)
            (format nil "Garamond will not run here: ~a. There is nothing for it to do." refused))
           ((and (not (garamond-on-p buffer)) (not declared) (null (buffer-file buffer)))
-           "This buffer has no file and nothing says its spacing: M-x garamond-set-spacing says it here.")
+           "This buffer has no file and nothing says its spacing: \\[garamond-set-spacing] says it here.")
           ((and (not (garamond-on-p buffer)) (not declared))
-           "Nothing says this buffer's spacing, so Garamond leaves it alone. M-x garamond-set-spacing says it and offers to write it in the file.")
+           "Nothing says this buffer's spacing, so Garamond leaves it alone. \\[garamond-set-spacing] says it and offers to write it in the file.")
           ((not (garamond-on-p buffer))
            (if *garamond-follow-declarations*
-               "The file says its spacing, and Garamond was switched off since, or the file was opened before the package was loaded: M-x garamond-mode switches it on."
-               "The file says its spacing, but *garamond-follow-declarations* is off, so it is not followed: M-x garamond-follow-declarations-mode."))
+               "The file says its spacing, and Garamond was switched off since, or the file was opened before the package was loaded: \\[garamond-mode] switches it on."
+               "The file says its spacing, but *garamond-follow-declarations* is off, so it is not followed: \\[garamond-follow-declarations-mode]."))
           ((not (sentence-end-double-space-p buffer))
            "Garamond is on, and this buffer's sentences are one space apart: typing is left alone.")
           ((not *garamond-double-space-on-typing*)
@@ -331,7 +326,8 @@ it is zero or less."
           (t "Garamond is on: a space typed after a sentence's end in prose is made two."))))
 
 (defun garamond-report (buffer)
-  "The report \\[garamond-doctor] shows of BUFFER."
+  "The report \\[garamond-doctor] shows of BUFFER, written as help is (SHOW-HELP
+with :FILL): the diagnosis a paragraph, the rest lines set in."
   (let ((in-force (length (sentence-abbreviations-in-force))))
     (with-output-to-string (out)
       (format out "Garamond in ~a~%~%This buffer~%" (buffer-name buffer))
@@ -352,18 +348,19 @@ it is zero or less."
       (format out "  abbreviations in force             ~d (~d Tuatara's, ~d removed, ~d yours)~%"
               in-force (length *sentence-abbreviations*)
               (length *removed-sentence-abbreviations*) (length *extra-sentence-abbreviations*))
-      (format out "~%Diagnosis~%  ~a~%" (garamond-diagnosis buffer)))))
+      (format out "~%Diagnosis~%~%~a~%" (garamond-diagnosis buffer)))))
 
 (define-command garamond-doctor ()
-  "Show what Garamond does in the current buffer and why, in *Garamond*:
-whether its file says its spacing, the spacing in force, whether
-\\[garamond-mode] is on and where a second space goes, the settings, and the
-likeliest reason for what is seen."
-  (let ((text (garamond-report (current-buffer)))
-        (b (buffer-in-mode "*Garamond*" 'garamond-doctor-mode)))
-    (set-made-text b text)
-    (setf (buffer-point b) 0)
-    (display-buffer b :at :start)))
+  "Show in *Help* what Garamond does in the current buffer and why: whether
+its file says its spacing, the spacing in force, whether \\[garamond-mode] is
+on and where a second space goes, the settings, and the likeliest reason for
+what is seen. \\[revert-buffer] there looks again."
+  (let ((buffer (current-buffer)))
+    (show-help (lambda ()
+                 (if (live-buffer-p buffer)
+                     (garamond-report buffer)
+                     (format nil "Garamond~%~%The buffer asked about is gone.~%")))
+               :fill t)))
 
 ;;; Loading
 

@@ -131,9 +131,14 @@ frontend, as a second value."
       (tuatara.buffer:kill-buffer b)))
   (let ((tuatara.defaults::*modal-editing* nil))
     (run-keys "M-x t e x t - m o d e RET M-x g a r a m o n d - d o c t o r RET" :width 100 :height 30)
-    (let ((report (tuatara.buffer:buffer-string (tuatara.buffer:find-buffer "*Garamond*"))))
+    (let ((report (tuatara.buffer:buffer-string (tuatara.buffer:find-buffer "*Help*"))))
+      (true (search "Garamond in *scratch*" report))
       (true (search "says its spacing            no" report))
-      (true (search "nothing says its spacing" report)))))
+      (true (search "nothing says its spacing" report))
+      ;; the diagnosis filled as help is, the key of the command it names written in
+      (true (search "M-x garamond-set-spacing" report))
+      (true (every (lambda (line) (<= (length line) tuatara.defaults::*help-column*))
+                   (uiop:split-string (subseq report (search "Diagnosis" report)) :separator '(#\Newline)))))))
 
 (define-test (garamond half-typed-and-windows-lines)
   ;; inline code or verbatim being typed, not closed yet: no second space

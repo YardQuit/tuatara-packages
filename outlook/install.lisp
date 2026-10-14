@@ -21,7 +21,9 @@ what reads them."
                      'mail-open-attachment-outside 'mail-view-file-text 'mail-view-pages)
   (entry-list-keys 'mailbox-mode "the list of a mailbox")
   (define-keys (mode-keymap 'mailbox-mode) '(("h" mailbox-back-to-folder) ("C" mailbox-export) ("d" :undefined)))
-  (commands-for-mode 'mailbox-mode "the list of a mailbox" 'mailbox-export 'mailbox-back-to-folder)
+  (commands-for-mode 'mailbox-mode "the list of a mailbox" 'mailbox-export 'mailbox-export-eml 'mailbox-export-msg
+                     'mailbox-back-to-folder)
+  (entry-preview-keys 'mailbox-mode "the list of a mailbox")
   (pushnew 'mail-visit *file-views*)
   (pushnew 'mailbox-visit *file-views*)
   (pushnew 'outlook-preview-text *preview-text-functions*)

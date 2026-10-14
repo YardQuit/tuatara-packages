@@ -53,6 +53,13 @@ messages in your cache directory: 32 GB as standard. It is stopped there, as
 it is when the drive has less than 1 GB free, and what it wrote by then is
 listed.")
 
+(define-package-setting *outlook-preview* t
+  "True for the list of a mailbox (.pst, .ost) to show the message on the
+current line in a window beside it, read as any message is, nothing in it
+run and nothing it points to fetched, following the cursor from line to
+line; NIL to leave it off until \\<mailbox-mode>\\[list-toggle-preview] turns
+it on in one list.")
+
 ;;; A message
 
 (defstruct (mail (:copier nil))

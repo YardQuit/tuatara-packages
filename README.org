@@ -142,6 +142,20 @@ package most often needs:
   than its line (matched in the background), names a list's headings, and
   has =C-s= narrow the list. =search-filters= and =light-search-filters= give
   the filters kept and light their matches where an entry is opened.
+- The entry on a list's line, beside it :: a method of =preview-entry= for
+  the list's mode gives the buffer showing an entry, and the preview
+  follows the cursor in a window beside the list, as rimu's does;
+  =entry-preview-keys= gives the list =P= (=list-toggle-preview=), and the
+  list's =:list-preview= says whether it is on.
+- Menus, help and switches :: =define-menu= puts a few ways of doing a
+  thing under one key, in the panel (=menu-arguments= reads its switches);
+  =show-help= with =:fill= shows a page of help or a report in =*Help*=,
+  filled as documentation is; =define-display-toggle= makes a way of
+  showing switched on and off, its settings the package's, and
+  =switched-by-count= any other on and off.
+- Questions :: =completing-read=, =completing-read-value=, =read-date= (a
+  date as typed: tomorrow, fri, +3d, sep 30), =read-whole-number=,
+  =read-path=, =yes-or-no-p*=.
 - Programs from outside :: =sandbox-run= and =run-on-copies= run a program
   shut in, on copies of the files, never on the files themselves;
   =run-on-copies-for-report= reads the JSON report such a program prints,

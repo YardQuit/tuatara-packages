@@ -30,7 +30,9 @@ the list staying, \\[list-next-entry] and \\[list-previous-entry] go to the next
 folder, as \\[list-toggle-fold] does, and \\[list-toggle-all-folds] folds or unfolds them all.
 \\[list-mark-entry] marks the message on the line (>), \\[list-unmark-entry] takes its mark off, \\[list-unmark-all] takes
 every mark off, \\[list-toggle-marks] marks those not marked and unmarks those marked; \\[mailbox-export] copies those marked, or the one on the line, out
-into a folder, as saved mail (.eml) or as Outlook items (.msg).
+into a folder, as saved mail (.eml) or as Outlook items (.msg), from a menu.
+The message on the line is shown beside the list as the cursor moves, read
+as any message is (*OUTLOOK-PREVIEW*); \\[list-toggle-preview] turns that off and on.
 \\[quit-window] closes the list, \\[mailbox-back-to-folder] too, after asking, going back to its folder in
 rimu; the messages readpst wrote for it are
 deleted with it.
@@ -402,7 +404,8 @@ its searches narrowing it once it is listed (MAILBOX-RENDER)."
     (reading-buffer '*mailboxes* (lambda (b) (buffer-local b 'mailbox-path)) native
                     (format nil "~a (mailbox)" name) (format nil "Reading ~a with readpst, shut in the sandbox...~%" name) 'mailbox-mode
                     (lambda (buffer)
-                      (setf (buffer-local buffer 'mailbox-path) native)
+                      (setf (buffer-local buffer 'mailbox-path) native
+                            (buffer-local buffer :list-preview) *outlook-preview*)
                       ;; readpst's messages in one folder, the text searched in each in another
                       (let ((messages (path-join (buffer-private-folder buffer) "mail/"))
                             (texts (path-join (buffer-private-folder buffer) "text/")))
@@ -449,6 +452,24 @@ staying where it is."
           (funcall show view)
           (light-search-filters list view))
         (visit-path (mailbox-item-path item) :safe t :show show))))
+
+(defmethod preview-entry ((mode mailbox-mode) list item)
+  "ITEM of the mailbox listed in LIST, beside the list: a message read in the
+background into a buffer of its own for the preview, as a message is shown,
+nothing in it run and nothing it points to fetched, the matches of the
+list's filters lit in it; a contact or an appointment said to be one."
+  (if (mailbox-item-message item)
+      (let ((view (mail-view-buffer (mailbox-item-path item) :safe t :name (mailbox-item-subject item) :preview t)))
+        (light-search-filters list view)
+        (values view t))
+      (values (side-preview-note (native-file-name (mailbox-item-path item))
+                                 (substitute-command-keys "A contact or an appointment: \\<mailbox-mode>\\[list-visit] opens it as its text."))
+              t)))
+
+(defmethod entry-preview-width ((mode mailbox-mode) list)
+  "The columns of a mailbox's list, a subject's first words among them."
+  (declare (ignore list))
+  80)
 
 ;;; Copied out
 
@@ -511,21 +532,15 @@ from the one readpst wrote beside the message; noting those that cannot be."
              (and missed (loop for (item . why) in missed
                                collect (format nil "~a (~a)" (or (mailbox-item-subject item) "(no subject)") why))))))
 
-(define-command mailbox-export ()
-  "Copy the messages marked in the mailbox's list (\\<mailbox-mode>\\[list-mark-entry]), or with
-none marked the one on the current line, out into a folder asked for, as
-saved mail (.eml) or as Outlook items (.msg), the format asked for first.
-A folder not there yet is made. Each is a new file named by when it was
-sent and its subject, (2) and so on
-added where that name is taken; nothing there is overwritten. They are
-copied in the background, as readpst wrote them; the mailbox itself is not
-touched. A contact or an appointment is copied as it is."
+(defun mailbox-export-as (type)
+  "Copy the messages marked in the mailbox's list, or with none marked the
+one on the current line, out into a folder asked for, as TYPE, \"eml\" or
+\"msg\" (MAILBOX-EXPORT-WORK, in the background)."
   (let* ((list (current-buffer))
          (items (remove-if-not #'mailbox-item-p (list-acted-on list))))
     (if (null items)
         (message "No message on this line")
         (let* ((words (list-question nil "message" items :name-of (lambda (item) (or (mailbox-item-subject item) "(no subject)"))))
-               (type (completing-read (format nil "Copy ~a out as: " words) '("eml" "msg") :require-match t :keep-order t))
                (folder (or (read-native-path (format nil "Copy ~a as .~a into: " words type))
                            (progn (message "No folder given: nothing copied") nil))))
           (when (and folder (null (path-kind folder :follow nil)))
@@ -537,3 +552,28 @@ touched. A contact or an appointment is copied as it is."
                 (t (start-job-thread (make-mailbox-export-job list items folder type) #'mailbox-export-work
                                      :name "tuatara mailbox export")
                    (message "Copying ~a out into ~a as .~a..." words folder type)))))))
+
+(define-command mailbox-export-eml ()
+  "Copy the messages marked in the mailbox's list (\\<mailbox-mode>\\[list-mark-entry]), or with
+none marked the one on the current line, out into a folder asked for, as
+saved mail (.eml). A folder not there yet is made. Each is a new file named
+by when it was sent and its subject, (2) and so on added where that name is
+taken; nothing there is overwritten. They are copied in the background, as
+readpst wrote them; the mailbox itself is not touched. A contact or an
+appointment is copied as it is."
+  (mailbox-export-as "eml"))
+
+(define-command mailbox-export-msg ()
+  "Copy the messages marked in the mailbox's list (\\<mailbox-mode>\\[list-mark-entry]), or with
+none marked the one on the current line, out into a folder asked for, as
+Outlook items (.msg), as \\[mailbox-export-eml] copies them as saved mail."
+  (mailbox-export-as "msg"))
+
+(define-menu mailbox-export (:title "Copy out")
+  "Open the menu of copying the messages marked in the mailbox's list, or with
+none marked the one on the current line, out into a folder: \\`e' as saved
+mail (.eml), \\`m' as Outlook items (.msg), the folder asked for then.
+\\`C-h' there lists every action."
+  ("Copy out as"
+   ("e" "Saved mail (.eml)" mailbox-export-eml)
+   ("m" "Outlook items (.msg)" mailbox-export-msg)))

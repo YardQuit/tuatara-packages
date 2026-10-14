@@ -30,7 +30,7 @@ In `~/.config/tuatara/init.lisp`, with this repository named as a source:
 | `M-x garamond-set-spacing` | Says how many spaces, 1 or 2, are between the buffer's sentences, changing none of its text, and offers to write it in the file. A count gives it: `C-u 2`. |
 | `M-x garamond-adjust-spacing` | Makes every gap after a sentence's end in the selection, or the whole buffer, 1 or 2 spaces as one change, and the gap after an abbreviation (e.g., Dr.) one space, as filling leaves it; then says so as `garamond-set-spacing` does. |
 | `M-x garamond-follow-declarations-mode` | Turns on or off `garamond-mode` starting by itself in files that say their spacing. |
-| `M-x garamond-doctor` | Shows in `*Garamond*` what the package does in the current buffer and why: what the file says, the spacing in force, where a second space goes, the settings. |
+| `M-x garamond-doctor` | Shows in `*Help*` what the package does in the current buffer and why: what the file says, the spacing in force, where a second space goes, the settings, and the likeliest reason for what is seen. `r` there looks again. |
 
 ## Where a second space goes
 
