@@ -681,7 +681,7 @@ WeasyPrint installed in it and a program drawing PDFs."
       (let ((text (tuatara.buffer:buffer-string buffer)))
         (has text "Outlook mailbox archive.pst")
         (has text "4 items in 2 folders")
-        (has text "▾ Outlook Data File/Inbox  3")
+        (has text "▾ Outlook Data File/Inbox (3)")
         (has text "2026-10-06")
         (has text "Café survey"))
       ;; each line its item
@@ -902,7 +902,7 @@ and the subjects kept."
             (false (tuatara.command:lookup-key (tuatara.modes:mode-keymap 'outlook::mailbox-mode) (tuatara.frontend:parse-key-sequence "V")))
             (is eq list stayed)
             (has (tuatara.buffer:buffer-string list) "RET or l opens the item on the line, a folder's line folds; P in a message shows it as it looks, q comes back;")
-            (has (first (rest shown)) "▸ Outlook Data File/Inbox  2")
+            (has (first (rest shown)) "▸ Outlook Data File/Inbox (2)")
             (false (search "Second" (first (rest shown))))
             (has (first shown) "Second")
             (is string= "Re: a/b?" opened)
