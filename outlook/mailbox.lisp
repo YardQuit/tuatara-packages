@@ -23,9 +23,10 @@
 (define-major-mode mailbox-mode sectioned-list-mode
   "An Outlook mailbox (.pst, .ost) read by readpst, shut in the sandbox: its
 folders, and under each its messages, a line each: when it was sent, whom
-from, how many attachments it has and its subject. \\<mailbox-mode>\\[mailbox-open-item] or \\`l' opens the
+from, how many attachments it has and its subject. \\<mailbox-mode>\\[list-visit] or \\`l' opens the
 message on the line, read only, the matches of the list's filters lit in it,
-\\`P' there shows it as it looks and \\`q' comes back; on a folder's line it folds or unfolds the
+\\`P' there shows it as it looks and \\`q' comes back; \\[list-visit-other] opens it in another window,
+the list staying, \\[list-next-entry] and \\[list-previous-entry] go to the next item and the one before; on a folder's line it folds or unfolds the
 folder, as \\[list-toggle-fold] does, and \\[list-toggle-all-folds] folds or unfolds them all.
 \\[list-mark-entry] marks the message on the line (>), \\[list-unmark-entry] takes its mark off, \\[list-unmark-all] takes
 every mark off, \\[list-toggle-marks] marks those not marked and unmarks those marked; \\[mailbox-export] copies those marked, or the one on the line, out
@@ -433,19 +434,21 @@ when it is closed any other way."
       (rimu-show-file path)
       (kill-buffer buffer))))
 
-(define-command mailbox-open-item ()
-  "Open the item of the mailbox on the current line: a message as one, read
-only, the matches of the filters narrowing the list lit in it; a contact or
-an appointment as its text, safely. On a folder's line, fold the folder, or
-unfold it when it is folded."
-  (let* ((list (current-buffer)) (entry (list-entry-at list)) (item (entry-member entry)))
-    (cond ((eq (first entry) :section) (toggle-list-section list (second entry)))
-          ((null item) (message "No item on this line"))
-          ((mailbox-item-message item)
-           (let ((view (mail-view-buffer (mailbox-item-path item) :safe t :name (mailbox-item-subject item))))
-             (show-buffer view)
-             (light-search-filters list view)))
-          (t (visit-path (mailbox-item-path item) :safe t)))))
+(defmethod list-entry-noun ((mode mailbox-mode))
+  "An item of a mailbox."
+  "item")
+
+(defmethod visit-entry ((mode mailbox-mode) list item other)
+  "Open ITEM of the mailbox listed in LIST: a message as one, read only, the
+matches of the filters narrowing the list lit in it; a contact or an
+appointment as its text, safely; with OTHER in another window, the list
+staying where it is."
+  (let ((show (if other (lambda (buffer) (pop-to-buffer buffer :other t)) (lambda (buffer) (show-buffer buffer)))))
+    (if (mailbox-item-message item)
+        (let ((view (mail-view-buffer (mailbox-item-path item) :safe t :name (mailbox-item-subject item))))
+          (funcall show view)
+          (light-search-filters list view))
+        (visit-path (mailbox-item-path item) :safe t :show show))))
 
 ;;; Copied out
 

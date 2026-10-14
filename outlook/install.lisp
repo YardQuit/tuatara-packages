@@ -19,9 +19,9 @@ what reads them."
   (define-key (mode-keymap 'mail-view-mode) "P" 'mail-view-pages)
   (commands-for-mode 'mail-view-mode "a message (an Outlook item, a saved mail, a message of a mailbox)"
                      'mail-open-attachment-outside 'mail-view-file-text 'mail-view-pages)
-  (define-keys (mode-keymap 'mailbox-mode) '(("RET" mailbox-open-item) ("l" mailbox-open-item) ("h" mailbox-back-to-folder)
-                                             ("C" mailbox-export) ("d" :undefined)))
-  (commands-for-mode 'mailbox-mode "the list of a mailbox" 'mailbox-open-item 'mailbox-export 'mailbox-back-to-folder)
+  (entry-list-keys 'mailbox-mode "the list of a mailbox")
+  (define-keys (mode-keymap 'mailbox-mode) '(("h" mailbox-back-to-folder) ("C" mailbox-export) ("d" :undefined)))
+  (commands-for-mode 'mailbox-mode "the list of a mailbox" 'mailbox-export 'mailbox-back-to-folder)
   (pushnew 'mail-visit *file-views*)
   (pushnew 'mailbox-visit *file-views*)
   (pushnew 'outlook-preview-text *preview-text-functions*)

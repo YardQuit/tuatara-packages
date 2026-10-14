@@ -35,6 +35,8 @@ here.
 | A message | `P` | Shows it as it looks: its HTML drawn as pages, its pictures in place, nothing fetched from the internet, no script run (see Seeing a message as it looks). `T` there comes back to the message. |
 | A message | `T` | Shows the message's file as its text: opened safely when the message came from a mailbox or an attachment, else as any file is opened. |
 | A mailbox | `RET`, `l` | Opens the item on the line: a message as one, read only, the matches of the list's filters lit in it; a contact or an appointment as its text, safely. On a folder's line, folds or unfolds the folder. |
+| A mailbox | `o` | Opens the item on the line in another window, the list staying where it is. |
+| A mailbox | `n`, `p` | Go to the next item and the one before, over the folders' lines. |
 | A mailbox | `TAB`, `S-TAB` | Folds or unfolds the folder the line is in; every folder. |
 | A mailbox | `m`, `u`, `U`, `t` | Marks the message on the line (`>`) and moves down; takes its mark off; takes every mark off; marks those shown that are not marked and unmarks those marked, as in rimu. A count marks as many. |
 | A mailbox | `C` | Copies the messages marked, or the one on the line, out into a folder: asks first for the format, `eml` (saved mail) or `msg` (Outlook item), then for the folder (made when it is not there). |

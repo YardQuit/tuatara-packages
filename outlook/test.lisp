@@ -655,6 +655,17 @@ WeasyPrint installed in it and a program drawing PDFs."
   (ensure-directories-exist path)
   (write-test-octets path (sb-ext:string-to-octets text :external-format :utf-8)))
 
+(define-test (outlook mailbox-keys-as-every-list)
+  ;; a mailbox opens, steps and marks with the keys of every list, by Tuatara's own commands
+  (let ((map (tuatara.modes:mode-keymap 'outlook::mailbox-mode)))
+    (flet ((bound (keys) (tuatara.command:lookup-key map (tuatara.frontend:parse-key-sequence keys))))
+      (is eq 'tuatara.defaults::list-visit (bound "RET"))
+      (is eq 'tuatara.defaults::list-visit (bound "l"))
+      (is eq 'tuatara.defaults::list-visit-other (bound "o"))
+      (is eq 'tuatara.defaults::list-next-entry (bound "n"))
+      (is eq 'tuatara.defaults::list-previous-entry (bound "p"))
+      (is eq 'tuatara.defaults::list-mark-entry (bound "m")))))
+
 (define-test (outlook mailbox-listed)
   ;; what readpst writes, made by hand: readpst itself is run only where it is installed
   (with-test-directory (dir)
