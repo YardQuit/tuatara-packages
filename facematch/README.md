@@ -4,7 +4,7 @@ Candidate photos ranked by how probable it is that they show the person of one
 or more master photos, each with its probability and the ODNI's words for it.
 
 The photos are chosen in rimu, with its preview showing each: master photos
-marked `M`, candidates marked `*`. The comparison runs in the background, shut
+marked `M`, candidates marked `>`. The comparison runs in the background, shut
 in Tuatara's sandbox, by the facematch engine: InsightFace with the AuraFace-v1
 model, built into one AppImage (`engine/`).
 
@@ -38,7 +38,7 @@ In `~/.config/tuatara/init.lisp`, with this repository named as a source:
    several of the same person; they're averaged into one template. `u` takes a
    mark away.
 3. Open the folder of the candidates (it may be another one). **`m`** marks
-   each candidate (`*`), as for any rimu operation.
+   each candidate (`>`), as for any rimu operation.
 4. **`C-c f f`** compares every master marked, in any rimu list, with the
    candidates marked in the folder this list shows (marks kept in other
    folders are not taken).

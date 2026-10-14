@@ -27,7 +27,7 @@ from, how many attachments it has and its subject. \\<mailbox-mode>\\[mailbox-op
 message on the line, read only, the matches of the list's filters lit in it,
 \\`P' there shows it as it looks and \\`q' comes back; on a folder's line it folds or unfolds the
 folder, as \\[list-toggle-fold] does, and \\[list-toggle-all-folds] folds or unfolds them all.
-\\[list-mark-entry] marks the message on the line (*), \\[list-unmark-entry] takes its mark off, \\[list-unmark-all] takes
+\\[list-mark-entry] marks the message on the line (>), \\[list-unmark-entry] takes its mark off, \\[list-unmark-all] takes
 every mark off, \\[list-toggle-marks] marks those not marked and unmarks those marked; \\[mailbox-export] copies those marked, or the one on the line, out
 into a folder, as saved mail (.eml) or as Outlook items (.msg).
 \\[quit-window] closes the list, \\[mailbox-back-to-folder] too, after asking, going back to its folder in
@@ -337,7 +337,7 @@ JOB's FOLDERS then hold them."
 (defparameter *mailbox-columns*
   '((" " :width 1) ("Sent" :width 16) ("From" :width 30) ("Att" :width 3 :right t) ("Subject"))
   "The columns of a mailbox's list, as TABLE-HEADING-PIECES takes them: the
-mark (*), when it was sent, whom from, its attachments and its subject.")
+mark (>), when it was sent, whom from, its attachments and its subject.")
 
 (defun mailbox-folder-title (folder)
   "What a mailbox's list calls FOLDER, the path readpst wrote it at."

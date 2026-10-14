@@ -107,7 +107,7 @@ no arguments, gives true, or TRIES turns have gone."
                  (true (find-if (lambda (l) (and (search "alice.jpg" l) (search "master" l))) lines))
                  (false (find-if (lambda (l) (search "notes.txt" l)) lines))
                  ;; the candidates unmarked, the master's M kept
-                 (false (find-if (lambda (l) (uiop:string-prefix-p "* " l)) lines))
+                 (false (find-if (lambda (l) (uiop:string-prefix-p "> " l)) lines))
                  (true (find-if (lambda (l) (and (uiop:string-prefix-p "M " l) (search "alice.jpg" l))) lines)))
                (true (tuatara.frontend.fake:fake-frame-showing f "3 photos ranked here, the other lines taken out"))
                ;; no ranked list made: that is C-c f f's

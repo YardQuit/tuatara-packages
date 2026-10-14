@@ -831,7 +831,7 @@ and the subjects kept."
       (is equal '("Second" "Third") (let ((seen '()))
                                       (dolist (s '("First" "Second" "Third" "Fourth" "Fifth") (nreverse seen))
                                         (when (search s after-mark) (push s seen)))))
-      (true (search "* " after-mark))
+      (true (search "> " after-mark))
       (has after-fold "Filtered by gannet|albatross")
       (has after-fold "▸ Outlook Data File/Inbox")
       (false (search "Second" after-fold))
@@ -893,7 +893,7 @@ and the subjects kept."
                    #'wait-for-mailbox-export :tick)
              :width 140 :height 30)
             (is equal (list first) marked)
-            (true (search "* 2026-10-06" (tuatara.buffer:buffer-string list)))
+            (true (search "> 2026-10-06" (tuatara.buffer:buffer-string list)))
             ;; the line over the list says the keys, those of a message opened from it too
             ;; moves by word and selections but V's do nothing in the list
             (dolist (keys '("w" "b" "W" "B" "v" "%"))
