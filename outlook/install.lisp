@@ -16,8 +16,9 @@ what reads them."
   (buttons-in-mode 'mail-view-mode "a message (an Outlook item, a saved mail, a message of a mailbox)")
   (define-key (mode-keymap 'mail-view-mode) "O" 'mail-open-attachment-outside)
   (define-key (mode-keymap 'mail-view-mode) "T" 'mail-view-file-text)
+  (define-key (mode-keymap 'mail-view-mode) "P" 'mail-view-pages)
   (commands-for-mode 'mail-view-mode "a message (an Outlook item, a saved mail, a message of a mailbox)"
-                     'mail-open-attachment-outside 'mail-view-file-text)
+                     'mail-open-attachment-outside 'mail-view-file-text 'mail-view-pages)
   (define-keys (mode-keymap 'mailbox-mode) '(("RET" mailbox-open-item) ("l" mailbox-open-item) ("h" quit-window)
                                              ("C" mailbox-export) ("d" :undefined)))
   (commands-for-mode 'mailbox-mode "the list of a mailbox" 'mailbox-open-item 'mailbox-export)

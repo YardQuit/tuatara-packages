@@ -16,6 +16,12 @@ messages, shut in the sandbox: readpst, of the libpst package, looked for in
 the system's own directories of programs. Set it in the init file after the
 outlook package is loaded.")
 
+(define-package-setting *outlook-page-program* "weasyprint"
+  "The program that draws a message written in HTML as it looks, as pages,
+shut in the sandbox: WeasyPrint, looked for in the system's own directories
+of programs. It runs no scripts, and shut in it fetches nothing from the
+internet. Set it in the init file after the outlook package is loaded.")
+
 (define-package-setting *outlook-include-deleted* t
   "True to list the items a mailbox (.pst, .ost) still holds that were
 deleted, in the folders they were deleted from, beside the others; NIL to
@@ -55,11 +61,12 @@ their addresses); SUBJECT; SENT and RECEIVED, universal times or NIL, with
 DATE-TEXT the date as the item writes it when it could not be read as one;
 MESSAGE-ID; DETAILS, more of what the item says of itself, each (LABEL .
 TEXT); BODY, its text to show, read from BODY-KIND (:plain, :html, :rtf, or
-NIL for none); HEADERS, its internet headers as they came, or NIL;
-ATTACHMENTS, each a MAIL-ATTACHMENT; NOTES, what could not be read of it, in
-words."
+NIL for none); HTML, a function giving the HTML its body is written in, when
+it has one, read only when asked; HEADERS, its internet headers as they came,
+or NIL; ATTACHMENTS, each a MAIL-ATTACHMENT; NOTES, what could not be read of
+it, in words."
   from to cc bcc subject sent received date-text message-id
-  (details '()) body body-kind headers (attachments '()) (notes '()))
+  (details '()) body body-kind html headers (attachments '()) (notes '()))
 
 (setf (documentation 'mail-p 'function) "True when OBJECT is a MAIL.")
 

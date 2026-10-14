@@ -255,14 +255,19 @@ disposition's filename or its type's name, encoded words decoded; NIL for none."
                   (cdr (assoc "name" (mime-part-parameters part) :test #'string=)))))
     (and name (plusp (length name)) (mime-decode-words name))))
 
+(defun mime-text-part (leaves type)
+  "The first part among LEAVES, a message's parts made of no others, of the
+TYPE given (text/plain, text/html), neither named nor an attachment; NIL for
+none."
+  (find-if (lambda (leaf) (and (string= (mime-part-type leaf) type) (not (mime-part-name leaf))
+                               (not (equal (mime-part-disposition leaf) "attachment"))))
+           leaves))
+
 (defun mime-body-part (leaves)
   "The part among LEAVES, a message's parts made of no others, that is its
-text to show: its first plain text, else its first HTML, neither named nor
-an attachment; NIL for none."
-  (flet ((shown (type) (find-if (lambda (leaf) (and (string= (mime-part-type leaf) type) (not (mime-part-name leaf))
-                                                     (not (equal (mime-part-disposition leaf) "attachment"))))
-                                leaves)))
-    (or (shown "text/plain") (shown "text/html"))))
+text to show: its first plain text, else its first HTML (MIME-TEXT-PART);
+NIL for none."
+  (or (mime-text-part leaves "text/plain") (mime-text-part leaves "text/html")))
 
 (defun mime-attachment-p (part body)
   "True when PART, a part made of no others, is an attachment of the message
@@ -312,7 +317,7 @@ besides those every message shows; and those readpst adds (X-libpst-...).")
 
 (defun mime-mail (part &key (depth 0))
   "The MAIL the internet mail PART (MIME-READ) is: its headers, its body (its
-plain text, else its HTML read as text), its attachments, a message among
+plain text, else its HTML read as text), its HTML, its attachments, a message among
 them read as one to a depth of *OUTLOOK-NESTING-LIMIT*, and its headers
 whole."
   (flet ((header (name) (let ((value (mime-header part name))) (and value (mime-decode-words value)))))
@@ -338,6 +343,8 @@ whole."
         (if (string= (mime-part-type body) "text/html")
             (setf (mail-body mail) (html-text (mime-part-text body)) (mail-body-kind mail) :html)
             (setf (mail-body mail) (mime-part-text body) (mail-body-kind mail) :plain)))
+      (let ((html (mime-text-part leaves "text/html")))
+        (when html (setf (mail-html mail) (lambda () (mime-part-text html)))))
       (when (and (null (mime-part-parts part)) (uiop:string-prefix-p "multipart/" (mime-part-type part)))
         (mail-note mail "Its parts could not be told apart: the boundary they are said to be between was never found"))
       (when (>= (length leaves) *mime-part-limit*)

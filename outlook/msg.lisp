@@ -134,25 +134,28 @@ own lists in PROPERTIES where it has no recipients of a kind."
 
 (defun msg-body (mail properties codepage)
   "Set MAIL's body by the item's PROPERTIES, text in code page CODEPAGE: the
-plain text, else the HTML, else the compressed RTF, each read as text; and
-note which of them the item holds."
+plain text, else the HTML, else the compressed RTF, each read as text; its
+HTML, the item's own or the HTML its RTF keeps; and note which of them the
+item holds."
   (let* ((plain (msg-string properties #x1000 codepage))
          (html (gethash #x1013 properties))
          (rtf (msg-value properties #x1009))
          (held (remove nil (list (and plain "plain text") (and html "HTML") (and rtf "RTF")))))
-    (handler-case
-        (cond (plain (setf (mail-body mail) plain (mail-body-kind mail) :plain))
-              (html (setf (mail-body mail)
-                          (html-text (if (stringp (cdr html))
-                                         (cdr html)
-                                         (let* ((octets (cdr html))
-                                                (head (octets-latin-1 octets :end (min 2048 (length octets))))
-                                                (charset (multiple-value-bind (m g) (cl-ppcre:scan-to-strings "(?i)charset\\s*=\\s*[\"']?([-\\w:.]+)" head)
-                                                           (and m (aref g 0)))))
-                                           (mail-decode octets (or charset (mail-codepage-charset (msg-value properties #x3FDE)) "utf-8")))))
-                          (mail-body-kind mail) :html))
-              ((vectorp rtf) (setf (mail-body mail) (rtf-text (lzfu-decompress rtf)) (mail-body-kind mail) :rtf)))
-      (error (e) (mail-note mail "Its body could not be read: ~a" e)))
+    (flet ((html-source ()
+             (if (stringp (cdr html))
+                 (cdr html)
+                 (let* ((octets (cdr html))
+                        (head (octets-latin-1 octets :end (min 2048 (length octets))))
+                        (charset (multiple-value-bind (m g) (cl-ppcre:scan-to-strings "(?i)charset\\s*=\\s*[\"']?([-\\w:.]+)" head)
+                                   (and m (aref g 0)))))
+                   (mail-decode octets (or charset (mail-codepage-charset (msg-value properties #x3FDE)) "utf-8"))))))
+      (handler-case
+          (cond (plain (setf (mail-body mail) plain (mail-body-kind mail) :plain))
+                (html (setf (mail-body mail) (html-text (html-source)) (mail-body-kind mail) :html))
+                ((vectorp rtf) (setf (mail-body mail) (rtf-text (lzfu-decompress rtf)) (mail-body-kind mail) :rtf)))
+        (error (e) (mail-note mail "Its body could not be read: ~a" e)))
+      (setf (mail-html mail) (cond (html #'html-source)
+                                   ((vectorp rtf) (lambda () (nth-value 1 (rtf-text (lzfu-decompress rtf))))))))
     (mail-detail mail "Bodies it holds" (and held (format nil "~{~a~^, ~}" held)))))
 
 (defun msg-attachments (mail cfb entry codepage depth)

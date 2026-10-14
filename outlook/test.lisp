@@ -7,7 +7,8 @@
   :description "The outlook package: compound files read with every chain checked (loops, streams larger than
 their chains, items nested deep or in a circle refused or cut short, never hanging); Outlook items read as
 messages (sender, recipients, dates, plain, HTML and compressed RTF bodies, internet headers, attachments, an
-attached item as a message, what the item says of itself); internet mail (encoded words, quoted-printable,
+attached item as a message, what the item says of itself); messages drawn as they look, shut in, nothing
+fetched; internet mail (encoded words, quoted-printable,
 base64, parts within parts, a boundary that never comes); attachments opened from private copies, the
 original untouched; mailboxes listed from what readpst writes, and refused with how to get readpst without
 it; previews, health and load-package.")
@@ -283,7 +284,15 @@ attached item nested INNER-DEPTH deep."
     (has body "the count <https://example.org/count>")
     (has body "[picture: tracker; from https://example.org/track.png, not fetched]")
     (false (search "alert" body))
-    (has (mail-test-text mail) "Text (HTML read as text)"))
+    (has (mail-test-text mail) "Text (HTML read as text)")
+    (has (funcall (outlook::mail-html mail)) "<script>alert(1)</script>"))
+  ;; RTF that keeps HTML gives it back; RTF of its own has none; plain text alone has none
+  (multiple-value-bind (text html)
+      (outlook::rtf-text (tuatara.text:string-octets "{\\rtf1\\ansi\\fromhtml1 {\\*\\htmltag64 <p style=\"color:red\">}Kea{\\*\\htmltag72 </p>}\\htmlrtf {\\par}\\htmlrtf0 }"))
+    (is string= "Kea" (string-trim '(#\Newline) text))
+    (is string= "<p style=\"color:red\">Kea</p>" (string-trim '(#\Space) html)))
+  (false (funcall (outlook::mail-html (outlook::msg-read (msg-test-octets :body :rtf)))))
+  (false (outlook::mail-html (outlook::msg-read (msg-test-octets))))
   ;; compressed RTF alone: taken out, a reference into the dictionary followed, its text read
   (is = 207 (length outlook::*lzfu-dictionary*))
   (let* ((mail (outlook::msg-read (msg-test-octets :body :rtf)))
@@ -396,6 +405,8 @@ Epilogue.~%"
       (is = (encode-universal-time 0 16 7 6 10 2026 0) (outlook::mail-received mail))
       (is eq :plain (outlook::mail-body-kind mail))
       (is string= (format nil "Café count: twelve kea.") (string-right-trim '(#\Newline) (outlook::mail-body mail)))
+      ;; its HTML kept beside the plain text shown, for drawing it as it looks
+      (is string= "<p>Café</p>" (funcall (outlook::mail-html mail)))
     (has text "X-Mailer: Feather 1.0")
     (has text "Content-Type: multipart/mixed")
       (false (search "Preamble" (outlook::mail-body mail)))
@@ -426,8 +437,12 @@ Epilogue.~%"
 ;;; Seen and opened in the editor
 
 (defun outlook-busy-p ()
-  "True while a message or a mailbox is being read."
-  (some (lambda (job) (or (outlook::mail-read-job-p job) (outlook::mailbox-job-p job))) tuatara.runtime:*jobs*))
+  "True while a message or a mailbox is being read, or a message drawn as it looks."
+  (or (some (lambda (job) (or (outlook::mail-read-job-p job) (outlook::mailbox-job-p job) (outlook::mail-pages-job-p job)))
+            tuatara.runtime:*jobs*)
+      (some (lambda (b) (let ((view (tuatara.defaults::pdf-view-of b)))
+                          (and view (or (tuatara.defaults::pdf-view-job view) (tuatara.defaults::pdf-view-text-job view)))))
+            tuatara.defaults::*pdf-views*)))
 
 (defun outlook-session (path steps &key (width 120) (height 40))
   "Visit PATH with C-x C-f in an editor session, then do each of STEPS (keys,
@@ -518,6 +533,74 @@ Returns the frontend and the editor."
         (dolist (b (copy-list tuatara.buffer:*buffers*))
             (when (or (tuatara.command::buffer-mode-named-p b 'outlook::mail-view-mode) (eq b (session-buffer editor)))
             (tuatara.buffer:kill-buffer b)))))))
+
+;;; As it looks
+
+(define-test (outlook html-made-ready)
+  ;; a picture shown by its Content-ID written beside the HTML and pointed to; one of no attachment left as it is
+  (with-test-directory (dir)
+    (let* ((folder (namestring dir))
+           (picture (outlook::make-mail-attachment :name "kea.png" :octets *png-test-octets* :content-id "<kea%401@example.org>"))
+           (other (outlook::make-mail-attachment :name "notes.txt" :octets (tuatara.text:string-octets "notes")))
+           (html "<img src=\"cid:kea@1@example.org\"><img src='CID:kea%401@example.org'><img src=\"cid:gone\"><img src=\"https://example.org/track.png\"><div style=\"background:url( 'http://example.org/b.gif')\"></div><link rel=stylesheet href=\"//example.org/s.css\"><a href=\"https://example.org/\">a link</a>"))
+      (multiple-value-bind (ready fetching) (outlook::mail-page-html html (list other picture) folder)
+        (has ready "<img src=\"part-1.png\"><img src='part-1.png'><img src=\"cid:gone\">")
+        ;; the picture, the background and the style would be fetched; a link is never followed
+        (is = 3 fetching)
+        (is equal '("part-1.png") (mapcar #'first (tuatara.io:directory-entries folder)))
+        (is equalp *png-test-octets* (tuatara.io:file-octets (merge-pathnames "part-1.png" dir))))
+      ;; a name an attachment gives is never used but for a plain ending
+      (let ((odd (outlook::make-mail-attachment :name "x.p/n g" :octets *png-test-octets* :content-id "odd")))
+        (has (outlook::mail-page-html "<img src=cid:odd>" (list odd) folder) "src=part-1>")))))
+
+(defun mail-pages-drawn-p ()
+  "True when messages can be drawn as they look here: the sandbox ready,
+WeasyPrint installed in it and a program drawing PDFs."
+  (and (eq :ready (tuatara.io:sandbox-status))
+       (tuatara.io:sandbox-find-program outlook::*outlook-page-program*)
+       (tuatara.defaults::find-pdf-decoder)))
+
+(define-test (outlook item-drawn-as-it-looks)
+  (with-test-directory (dir)
+    (let* ((html (write-test-octets (merge-pathnames "survey.msg" dir) (msg-test-octets :body :html)))
+           (plain (write-test-octets (merge-pathnames "plain.msg" dir) (msg-test-octets)))
+           (before (tuatara.io:file-octets html)))
+      ;; plain text alone looks as it is shown
+      (multiple-value-bind (f editor) (outlook-session plain (list "P"))
+        (true (tuatara.frontend.fake:fake-frame-showing f "Its text is plain"))
+        (tuatara.buffer:kill-buffer (session-buffer editor)))
+      ;; where WeasyPrint is not, it says what to install
+      (let ((outlook::*outlook-page-program* "no-such-weasyprint"))
+        (multiple-value-bind (f editor) (outlook-session html (list "P"))
+          (true (tuatara.frontend.fake:fake-frame-showing f "no-such-weasyprint, which is not installed"))
+          (tuatara.buffer:kill-buffer (session-buffer editor))))
+      (if (not (mail-pages-drawn-p))
+          (skip "WeasyPrint, the sandbox or a program for PDFs is not here" (true t))
+          ;; P: its HTML drawn as pages, shut in, the script not run and nothing fetched; T back to the message
+          (let ((pages nil) (back nil))
+            (multiple-value-bind (f editor)
+                (outlook-session html (list "P" (lambda () (setf pages (tuatara:current-buffer))) "T"
+                                            (lambda () (setf back (tuatara:current-buffer)))))
+              (declare (ignore f))
+              (is string= "survey.msg (as it looks)" (tuatara.buffer:buffer-name pages))
+              (true (tuatara.command::buffer-mode-named-p pages 'tuatara.defaults::pdf-view-mode))
+              (let ((text (tuatara.buffer:buffer-string pages)))
+                (has text "Kea & kaka seen")
+                (false (search "alert" text)))
+              (let ((view (tuatara.defaults::pdf-view-of pages)))
+                (is = 1 (tuatara.defaults::pdf-view-pages view))
+                ;; fitted to the window's width, to be read
+                (is eq :width (tuatara.defaults::pdf-view-zoom view))
+                (has (tuatara.defaults::pdf-view-words view) "1 thing from the internet not fetched"))
+              (true (tuatara.command::buffer-mode-named-p back 'outlook::mail-view-mode))
+              ;; its HTML written for you alone, beside nothing of yours
+              (let ((written (tuatara.defaults::pdf-view-path (tuatara.defaults::pdf-view-of pages))))
+                (true (search "/mail-pages/" written))
+                (is = #o400 (logand #o777 (tuatara.io:stamp-mode (tuatara.io:path-stamp written))))
+                (tuatara.io:delete-tree (tuatara.io:parent-path written)))
+              (dolist (b (list pages (session-buffer editor) back))
+                (when (tuatara.buffer:live-buffer-p b) (tuatara.buffer:kill-buffer b))))))
+      (is equalp before (tuatara.io:file-octets html)))))
 
 ;;; Mailboxes
 

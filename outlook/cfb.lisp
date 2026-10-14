@@ -284,7 +284,8 @@ words left out, but those that break lines and tabs; groups that hold no
 text (*RTF-SKIPPED-GROUPS*, and those marked as ignorable) left out;
 characters given by their number (\\uN, and \\'XX in the document's code
 page) decoded. RTF that keeps HTML (\\fromhtml) gives back that HTML's text,
-read as HTML (HTML-TEXT), its markup taken from where it keeps it."
+read as HTML (HTML-TEXT), its markup taken from where it keeps it, and the
+HTML itself as a second value."
   (let ((out (make-string-output-stream)) (written 0)
         (pending (make-array 16 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0))
         (charset "windows-1252") (html nil)
@@ -366,4 +367,4 @@ read as HTML (HTML-TEXT), its markup taken from where it keeps it."
                       (incf i)))))
       (flush)
       (let ((text (get-output-stream-string out)))
-        (if html (html-text text) (string-trim '(#\Newline #\Space) text))))))
+        (if html (values (html-text text) text) (string-trim '(#\Newline #\Space) text))))))

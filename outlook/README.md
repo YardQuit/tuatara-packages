@@ -31,6 +31,7 @@ here.
 | Where | Key | What it does |
 |---|---|---|
 | A message | `O` | Opens the attachment at point in the desktop's own program for its kind, after asking: a copy only you can read, and only a kind that may be opened outside Tuatara (a picture, a PDF, a sound, a video, an Office document). That program is not shut in the sandbox. |
+| A message | `P` | Shows it as it looks: its HTML drawn as pages, its pictures in place, nothing fetched from the internet, no script run (see Seeing a message as it looks). `T` there comes back to the message. |
 | A message | `T` | Shows the message's file as its text: opened safely when the message came from a mailbox or an attachment, else as any file is opened. |
 | A mailbox | `RET`, `l` | Opens the item on the line: a message as one, read only, the matches of the list's filters lit in it; a contact or an appointment as its text, safely. On a folder's line, folds or unfolds the folder. |
 | A mailbox | `TAB`, `S-TAB` | Folds or unfolds the folder the line is in; every folder. |
@@ -50,6 +51,25 @@ written to your cache folder, each twice, as saved mail and as an Outlook
 item, so that they can be copied out as either; they are deleted when the
 list is closed. Install libpst from your system's packages
 (`readpst` on the `PATH` of the system's own program folders).
+
+## Seeing a message as it looks
+
+`P` in a message draws it as a mail program shows it: its HTML laid out as
+on a screen, its colours, tables and fonts, the pictures it carries in their
+places. The pages are shown in Tuatara's PDF view, with its keys (zoom, search,
+the text). The message's HTML comes from the message itself: the HTML part
+of a saved mail, or an Outlook item's HTML, or the HTML its rich text keeps.
+A message of plain text alone looks as it is shown already.
+
+It is drawn by [WeasyPrint](https://weasyprint.org), shut in Tuatara's
+sandbox as readpst is: no network, so nothing is fetched from the internet (a
+picture, a style, a tracking pixel) and the sender cannot learn the message
+was opened; the line over the pages says how many such things it holds.
+WeasyPrint runs no scripts at all. It sees only the message's HTML and the
+pictures it shows, written into a folder of your cache only you can read, and
+your fonts, read only. Install it from your system's packages: `weasyprint`
+on Fedora, Debian and Ubuntu, `python-weasyprint` on Arch, `python3-weasyprint`
+on openSUSE. The pages need poppler's `pdftoppm` too, as any PDF does.
 
 ## Copying messages out
 
@@ -100,6 +120,7 @@ readpst wrote are never changed.
 | Setting | Standard | What it is |
 |---|---|---|
 | `*outlook-readpst-program*` | `"readpst"` | The program that reads mailboxes. |
+| `*outlook-page-program*` | `"weasyprint"` | The program that draws a message as it looks. |
 | `*outlook-include-deleted*` | `t` | Lists the items a mailbox still holds that were deleted, in the folders they were deleted from; `nil` for only those not deleted. |
 | `*outlook-largest-file*` | 256 MB | The most an item or saved mail, or an attachment in one, may hold to be read as a message; a larger one opens as any file. |
 | `*outlook-nesting-limit*` | `8` | How many levels of messages attached to messages are shown as messages; deeper ones are listed as not read. |
@@ -124,6 +145,7 @@ Set them in the package's `:config`:
 - Microsoft's Open Specifications, MS-CFB and MS-OXMSG: how an Outlook item is
   read.
 - libpst's `readpst`: how a mailbox is read.
+- WeasyPrint: how a message is drawn as it looks.
 
 ## License
 

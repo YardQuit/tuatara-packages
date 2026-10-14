@@ -21,7 +21,8 @@ run, and nothing it points to fetched.
 \\<mail-view-mode>\\[push-button] on an attachment opens it here, safely, from a copy only you
 can read (one that is a message as a message); \\[mail-open-attachment-outside] opens that copy in
 the desktop's program, after asking; \\[forward-button] and \\[backward-button] go from one
-attachment to the next; \\[mail-view-file-text] shows the file of the message itself, as
+attachment to the next; \\[mail-view-pages] shows it as it looks, its HTML drawn as pages,
+nothing fetched; \\[mail-view-file-text] shows the file of the message itself, as
 text; \\[quit-window] closes it, back to the list it was opened from."
   :lighter "Mail" :interactive nil)
 
@@ -252,6 +253,129 @@ own."
           ((cdr source) (visit-path (car source) :safe t))
           (t (visit-path-as-text (car source) nil (lambda (buffer) (show-buffer buffer)))))))
 
+;;; As it looks
+
+(defparameter *mail-page-style* "@page { size: 280mm 396mm; margin: 6mm }"
+  "The pages a message is drawn on as it looks (CSS): as wide as a mail
+program's window, about 1,000 pixels across, so that a message written wide
+is not cut off; as long for their width as A4.")
+
+(defparameter *mail-page-seconds* 120
+  "The most processor seconds drawing a message as it looks may take.")
+
+(defparameter *mail-page-memory* (* 2 1024 1024 1024)
+  "The most memory drawing a message as it looks may take.")
+
+(defparameter *mail-fetching-pattern*
+  "(?i)(?:\\b(?:src|background|poster)\\s*=\\s*[\"']?|url\\(\\s*[\"']?|@import\\s+[\"']|<link\\b[^>]*\\bhref\\s*=\\s*[\"']?)\\s*(?:https?:)?//"
+  "What in a message's HTML would fetch a picture, a style or the like from
+the internet when it is shown: never fetched here, only counted.")
+
+(defun mail-content-id (text)
+  "TEXT, a Content-ID or what follows cid: in HTML, as the two are compared:
+without its angle brackets and spaces, %XX read as the octets they stand for."
+  (let ((id (string-trim '(#\< #\> #\Space #\Tab) text)))
+    (if (find #\% id) (octets-string (percent-decoded-octets id)) id)))
+
+(defun mail-page-html (html attachments folder)
+  "HTML, a message's, made ready to be drawn from FOLDER: each picture it
+shows from among ATTACHMENTS (cid:, by its Content-ID) written into FOLDER
+and pointed to there, by a name of its own. Returns it, and as a second value
+how many pictures, styles and the like it would fetch from the internet
+\(*MAIL-FETCHING-PATTERN*), which drawing it never does."
+  (let ((written (make-hash-table :test #'equal)) (count 0))
+    (values (cl-ppcre:regex-replace-all
+             "(?i)\\bcid:([^\"'\\s)>]+)" html
+             (lambda (match id)
+               (let* ((id (mail-content-id id))
+                      (attachment (find-if (lambda (a) (and (mail-attachment-content-id a) (mail-attachment-octets a)
+                                                            (string= id (mail-content-id (mail-attachment-content-id a)))))
+                                           attachments)))
+                 (cond ((null attachment) match)
+                       ((gethash attachment written))
+                       (t (let* ((type (native-file-type (or (mail-attachment-name attachment) "")))
+                                 (name (format nil "part-~d~@[.~a~]" (incf count)
+                                               (and type (cl-ppcre:scan "^[A-Za-z0-9]{1,5}$" type) type))))
+                            (write-new-file (path-join folder name) (mail-attachment-octets attachment))
+                            (setf (gethash attachment written) name))))))
+             :simple-calls t)
+            (/ (length (cl-ppcre:all-matches *mail-fetching-pattern* html)) 2))))
+
+(defun mail-pages-pdf (fd folder)
+  "The PDF *OUTLOOK-PAGE-PROGRAM* (WeasyPrint) draws, shut in, of the message's
+HTML open at FD (MAIL-PAGE-HTML), as a sealed file in memory: laid out as on
+a screen, as its markup says, the pictures in FOLDER shown, your fonts used;
+nothing fetched, no script run. An error saying why when it draws none."
+  (multiple-value-bind (octets outcome said)
+      (sandbox-run *outlook-page-program* '("-q" "-p" "-m" "screen" "-e" "utf-8" "-u" "/tmp/parts/" "-s" "/tmp/page.css" "-" "-")
+                   :input fd :seconds *mail-page-seconds* :memory *mail-page-memory*
+                   :files (list (cons "/tmp/page.css" *mail-page-style*))
+                   :directories (cons (cons (string-right-trim "/" folder) "/tmp/parts") (sandbox-font-directories)))
+    (unless (and (eq outcome :done) (octets-at-p octets "%PDF"))
+      (error "~a drew no pages: ~(~a~)~@[: ~a~]" *outlook-page-program* outcome
+             (and (plusp (length said)) (subseq said 0 (min 300 (length said))))))
+    (memory-file "outlook-mail-pages" octets :kept nil)))
+
+(defstruct (mail-pages-job (:include job) (:constructor make-mail-pages-job (buffer mail)) (:copier nil))
+  "The message MAIL, shown in BUFFER, being made ready to be drawn as it
+looks, a job: PATH, its HTML written once ready (NIL for a message with
+none); FETCHING, how many things it would fetch from the internet."
+  mail path (fetching 0))
+
+(setf (documentation 'mail-pages-job-p 'function) "True when OBJECT is a MAIL-PAGES-JOB.")
+
+(define-job-words mail-pages-job
+  :doing "Drawing the message"
+  :description (format nil "Drawing ~a as it looks" (or (mail-line (mail-subject (mail-pages-job-mail job))) "a message"))
+  :verb "draw the message"
+  :left-words "nothing drawn"
+  :at-exit :quiet)
+
+(defun mail-pages-ready (job)
+  "Write the HTML of JOB's message, made ready (MAIL-PAGE-HTML), into a new
+folder for you alone in the cache directory, with the pictures it shows."
+  (let* ((mail (mail-pages-job-mail job))
+         (html (funcall (mail-html mail))))
+    (when html
+      (let ((folder (new-private-folder (private-cache-directory "mail-pages/"))))
+        (multiple-value-bind (ready fetching) (mail-page-html html (mail-attachments mail) folder)
+          (setf (mail-pages-job-fetching job) fetching
+                (mail-pages-job-path job) (write-new-file (path-join folder "message.html") ready)))))))
+
+(defmethod job-take-in ((job mail-pages-job))
+  "Show the message as it looks, as pages, or say why it is not."
+  (let ((shown (job-buffer job)) (path (mail-pages-job-path job)) (fetching (mail-pages-job-fetching job)))
+    (cond ((not (live-buffer-p shown)))
+          ((not (eq (job-status job) :done)) (message "~a" (job-ending-words job)))
+          ((null path) (message "Its HTML holds nothing to draw: it looks as its text"))
+          (t (let ((pages (pdf-view-make path :make (lambda (fd) (mail-pages-pdf fd (parent-path path)))
+                                               :reading (lambda (pages)
+                                                          (declare (ignore pages))
+                                                          (if (live-buffer-p shown) (show-buffer shown) (message "The message is closed")))
+                                               :words (format nil "A message as it looks, drawn by ~a~[~:;, ~:*~:d thing~:p from the internet not fetched~]"
+                                                              *outlook-page-program* fetching)
+                                               :zoom :width)))
+               (setf (buffer-name pages) (unique-buffer-name (format nil "~a (as it looks)" (buffer-name shown)))
+                     (buffer-local shown 'mail-pages) pages)
+               (show-buffer pages))))))
+
+(define-command mail-view-pages ()
+  "Show the message shown as it looks, as pages: its HTML laid out as a
+screen shows it, drawn by *outlook-page-program* (WeasyPrint) shut in the
+sandbox, the pictures it holds in their places. Nothing is fetched from the
+internet (the line over the pages says how many pictures and the like it
+would fetch) and no script is run. \\`T' there comes back to the message.
+A message of plain text alone looks as it is shown."
+  (let* ((buffer (current-buffer))
+         (mail (buffer-local buffer 'mail))
+         (pages (buffer-local buffer 'mail-pages)))
+    (cond ((null mail) (message "The message is still being read"))
+          ((null (mail-html mail)) (message "Its text is plain: it looks as it is shown here"))
+          ((live-buffer-p pages) (show-buffer pages))
+          ((not (sandbox-find-program *outlook-page-program*))
+           (message "Messages are drawn as they look by ~a, which is not installed (its package: weasyprint)" *outlook-page-program*))
+          (t (start-job-thread (make-mail-pages-job buffer mail) #'mail-pages-ready :name "tuatara mail pages")))))
+
 ;;; Opening, previews, health
 
 (defun mail-visit (path show)
@@ -287,6 +411,7 @@ size and how to read it; NIL for any other file."
 
 (defun outlook-health-words ()
   "What reads Outlook's files here, as \\[check-health] says it."
-  (let ((readpst (sandbox-find-program *outlook-readpst-program*)))
-    (format nil "Outlook items (.msg) and saved mail (.eml) by Tuatara; mailboxes (.pst, .ost) by ~:[none: install readpst (Fedora: libpst)~;~:*~a, shut in~]"
-            readpst)))
+  (let ((readpst (sandbox-find-program *outlook-readpst-program*))
+        (pages (sandbox-find-program *outlook-page-program*)))
+    (format nil "Outlook items (.msg) and saved mail (.eml) by Tuatara; mailboxes (.pst, .ost) by ~:[none: install readpst (Fedora: libpst)~;~:*~a, shut in~]; messages as they look by ~:[none: install weasyprint~;~:*~a, shut in~]"
+            readpst pages)))
