@@ -366,7 +366,7 @@ was. Its searches narrow it, matching each message's headers and contents
                                     (octets-words (or (ignore-errors (stamp-size (path-stamp (mailbox-job-path job)))) 0))
                                     count (length folders) *outlook-include-deleted*)
                             :heading)
-                      (format nil "~a~%" (substitute-command-keys "\\<mailbox-mode>\\[mailbox-open-item] opens the item on the line, a folder's line folds; \\[regex-search-forward] narrows the list to the items whose headers or contents match; \\[list-mark-entry] marks, \\[mailbox-export] copies out."))))
+                      (format nil "~a~%" (substitute-command-keys "\\<mailbox-mode>\\`RET' or \\`l' opens the item on the line, a folder's line folds; \\<mail-view-mode>\\[mail-view-pages] in a message shows it as it looks, \\[quit-window] comes back; \\<mailbox-mode>\\[regex-search-forward] narrows the list to the items whose headers or contents match; \\[list-mark-entry] marks, \\[mailbox-export] copies out."))))
          (partial (loop for (nil . items) in folders sum (count-if-not #'mailbox-item-whole items)))
          (notes (loop for note in (append (reverse (mailbox-job-notes job))
                                           (and (plusp partial)

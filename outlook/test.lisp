@@ -845,6 +845,8 @@ and the subjects kept."
              :width 140 :height 30)
             (is equal (list first) marked)
             (true (search "> 2026-10-06" (tuatara.buffer:buffer-string list)))
+            ;; the line over the list says the keys, those of a message opened from it too
+            (has (tuatara.buffer:buffer-string list) "RET or l opens the item on the line, a folder's line folds; P in a message shows it as it looks, q comes back;")
             (has (first (rest shown)) "▸ Outlook Data File/Inbox  2")
             (false (search "Second" (first (rest shown))))
             (has (first shown) "Second")
