@@ -57,7 +57,7 @@ printf '\"errors\":[\"/tmp/files/photo-3.jpg: no face detected\"],\"arguments\":
             (false (search "alice" arguments))
             (false (search "*" arguments)))
           ;; the report: the photos' own paths, the closest first, the match coloured, the agreement warned of
-            (multiple-value-bind (text spans buttons) (facecomp::facecomp-report-text report (facecomp::facecomp-job-names job))
+            (multiple-value-bind (text spans buttons) (tuatara:pieces-text (facecomp::facecomp-report-pieces report (facecomp::facecomp-job-names job)))
             (flet ((has (words) (true (search words text) "~s in~%~a" words text)))
               (has "Masters: 2 photos of one person")
               (has (tuatara.command:abbreviated-path (first photos)))

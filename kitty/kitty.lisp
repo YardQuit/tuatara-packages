@@ -78,9 +78,9 @@ else the one it opened; NIL when there is none."
 (defun kitty-new-socket ()
   "A new socket for a kitty of the editor's own, in your runtime folder (only
 you may enter it), its name random: unix:PATH."
-  (format nil "unix:~a/tuatara-kitty-~36r"
+  (format nil "unix:~a/tuatara-kitty-~a"
           (string-right-trim "/" (or (uiop:getenv "XDG_RUNTIME_DIR") (namestring (uiop:temporary-directory))))
-          (random (expt 2 64) (make-random-state t))))
+          (random-name)))
 
 (defun kitty-program ()
   "The kitty program, or an error when it is not installed."

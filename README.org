@@ -143,7 +143,11 @@ package most often needs:
   has =C-s= narrow the list. =search-filters= and =light-search-filters= give
   the filters kept and light their matches where an entry is opened.
 - Programs from outside :: =sandbox-run= and =run-on-copies= run a program
-  shut in, on copies of the files, never on the files themselves.
+  shut in, on copies of the files, never on the files themselves;
+  =run-on-copies-for-report= reads the JSON report such a program prints,
+  =sandbox-pdf= has one draw a PDF of a document, =sandbox-outcome-words=
+  says why a run gave nothing, and =program-health-words= says what runs
+  a thing, for =M-x check-health=.
 
 The whole list is Tuatara's =lisp/api.lisp=; each name's help (=C-h f=)
 says what it is for.

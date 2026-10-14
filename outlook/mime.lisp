@@ -296,7 +296,7 @@ says, or NIL when it cannot be read as one."
     (when match
       (ignore-errors
        (let* ((day (parse-integer (aref groups 0)))
-              (month (1+ (position (string-downcase (aref groups 1)) '("jan" "feb" "mar" "apr" "may" "jun" "jul" "aug" "sep" "oct" "nov" "dec") :test #'string=)))
+              (month (1+ (position (aref groups 1) *short-month-names* :test #'string-equal)))
               (year (let ((y (parse-integer (aref groups 2)))) (cond ((< y 50) (+ y 2000)) ((< y 100) (+ y 1900)) (t y))))
               (zone (let ((z (aref groups 6)))
                       (cond ((null z) 0)

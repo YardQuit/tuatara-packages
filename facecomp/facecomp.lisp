@@ -132,8 +132,8 @@ for the run and the settings."
   "MASTERS (photos of one person) being compared with PHOTOS by facecomp,
 with CONFIDENCE for this run or NIL, a job for BUFFER: REPORT, what facecomp
 said, read JSON; NAMES, the table of its copies' names (RUN-ON-COPIES);
-SHOWN, the report's text, spans and buttons (FACECOMP-REPORT-TEXT); FAILURE,
-why there is no report."
+SHOWN, the report's pieces (FACECOMP-REPORT-PIECES); FAILURE, why there is
+no report."
   masters photos confidence report names shown failure)
 
 (setf (documentation 'facecomp-job-p 'function) "True when OBJECT is a FACECOMP-JOB.")
@@ -147,33 +147,22 @@ why there is no report."
 
 (defun facecomp-work (job)
   "What a comparison does: runs facecomp shut in on copies of the photos
-\(RUN-ON-COPIES), and keeps its report, or why there is none."
-  (let ((program (or (user-program-path *facecomp-program*)
-                     (error "facecomp is not there: install it, or give its path in *facecomp-program*"))))
-    (multiple-value-bind (models model-files) (facecomp-models)
-      (multiple-value-bind (output outcome said names)
-          (run-on-copies program (list (cons "master" (facecomp-job-masters job)) (cons "photo" (facecomp-job-photos job)))
-                         (lambda (masters photos) (facecomp-arguments masters photos (facecomp-job-confidence job) models))
-                         :directories model-files
-                         :seconds *facecomp-seconds* :memory (* 4 1024 1024 1024)
-                         :cancel (job-cancel job))
-        (job-check-stop)
-        (setf (facecomp-job-names job) names)
-        (let ((report (and (eq outcome :done) (copies-output-json output))))
-          (if report
-              (setf (facecomp-job-report job) report
-                    (facecomp-job-shown job) (multiple-value-list (facecomp-report-text report names)))
-              (setf (facecomp-job-failure job)
-                    (run-on-copies-failure "facecomp" outcome said names '*facecomp-seconds*))))))))
+\(RUN-ON-COPIES-FOR-REPORT), and keeps its report, or why there is none."
+  (multiple-value-bind (models model-files) (facecomp-models)
+    (multiple-value-bind (report names failure)
+        (run-on-copies-for-report *facecomp-program*
+                                  (list (cons "master" (facecomp-job-masters job)) (cons "photo" (facecomp-job-photos job)))
+                                  (lambda (masters photos) (facecomp-arguments masters photos (facecomp-job-confidence job) models))
+                                  :label "facecomp" :seconds-setting '*facecomp-seconds*
+                                  :missing "facecomp is not there: install it, or give its path in *facecomp-program*"
+                                  :directories model-files :memory (* 4 1024 1024 1024) :cancel (job-cancel job))
+      (setf (facecomp-job-names job) names
+            (facecomp-job-failure job) failure)
+      (when report
+        (setf (facecomp-job-report job) report
+              (facecomp-job-shown job) (facecomp-report-pieces report names))))))
 
 ;;; The report
-
-(defun facecomp-percent-face (percent)
-  "The face a match of PERCENT is shown in: Very likely and above, Likely to
-Even chance, and below."
-  (cond ((>= percent 80) :info)
-        ((>= percent 45) :warning)
-        (t :error)))
 
 (define-major-mode facecomp-mode special-mode
   "The report of a comparison of faces (\\[facecomp-compare]): the master
@@ -189,24 +178,16 @@ sandbox (IMAGE-VIEW-VISIT); what is no picture it can draw, opened safely."
     (or (image-view-visit path show)
         (visit-path path :safe t :show show))))
 
-(defun facecomp-report-text (report names)
-  "The text of the report REPORT, facecomp's read JSON, its photos' names
-\(NAMES, as RUN-ON-COPIES gives them) written as theirs, as three values: the text,
-its spans, each (START END FACE), and its buttons, each (START END ACTION),
-in octets."
-  (let ((out (make-string-output-stream)) (at 0) (spans '()) (buttons '()))
-    (labels ((put (text &optional face)
-               (let ((octets (length (string-octets text))))
-                 (when face (push (list at (+ at octets) face) spans))
-                 (write-string text out)
-                 (incf at octets)))
-             (path (copy) (gethash copy names copy))
+(defun facecomp-report-pieces (report names)
+  "The pieces (as RENDER-PIECES takes them) of the report REPORT, facecomp's
+read JSON, its photos' names (NAMES, as RUN-ON-COPIES gives them) written as
+theirs, each photo a button showing it."
+  (let ((pieces '()))
+    (labels ((put (text &optional face) (push (if face (cons text face) text) pieces))
              (items (key) (coerce (json-items report key) 'list))
              (photo (copy)
-               ;; the photo's own path, a button opening it safely
-               (let* ((file (path copy)) (start at))
-                 (put (abbreviated-path file) :link)
-                 (push (list start at (lambda () (facecomp-show-photo file))) buttons))))
+               (let ((file (gethash copy names copy)))
+                 (push (list (abbreviated-path file) :link (lambda () (facecomp-show-photo file))) pieces))))
       (let ((masters (items "masters"))
             (threshold (json-get report "threshold"))
             (agreement (json-get report "enrolment_agreement")))
@@ -240,18 +221,16 @@ in octets."
                 (photo (json-text r "photo"))
                 (put (format nil "~%  "))
                 (when (realp percent)
-                  (put (format nil "~,1f% match, ~a" percent (or (json-text r "confidence") "")) (facecomp-percent-face percent)))
+                  (put (format nil "~,1f% match, ~a" percent (or (json-text r "confidence") "")) (likelihood-face percent)))
                 (put (format nil "~@[   similarity ~,4f~]~@[   the best of ~d faces in the photo~]~2%"
                              (and (realp similarity) similarity) (and faces (> faces 1) faces))))))))
-    (values (get-output-stream-string out) (nreverse spans) (nreverse buttons))))
+    (nreverse pieces)))
 
 (defmethod job-take-in ((job facecomp-job))
   "Show facecomp's report in *facecomp*, or say why there is none."
   (cond ((facecomp-job-report job)
          (let ((buffer (buffer-in-mode "*facecomp*" 'facecomp-mode)))
-           (destructuring-bind (text spans buttons) (facecomp-job-shown job)
-             (set-made-text buffer text :spans spans :buttons buttons))
-           (setf (buffer-point buffer) 0)
+           (render-pieces buffer (facecomp-job-shown job) :point :start)
            (display-buffer buffer)
            (message "Faces compared: ~d photo~:p" (length (json-items (facecomp-job-report job) "results")))))
         ((facecomp-job-failure job) (message "~a" (facecomp-job-failure job)))
@@ -297,13 +276,6 @@ masters and the photos."
                           (or chosen (list (first names))))))
     (values masters (remove-if (lambda (path) (member path masters :test #'string=)) marked))))
 
-(defun facecomp-read-confidence ()
-  "Ask for this run's detection confidence, 0.8 offered."
-  (let ((value (parse-decimal (string-trim " " (read-string "Detection confidence for this run: " :initial "0.8")))))
-    (unless (and value (< 0 value) (<= value 1))
-      (error "The detection confidence must be above 0 and at most 1"))
-    value))
-
 (define-command facecomp-compare ()
   "Compare the faces in photos with the face of a master photo, or of several
 photos of one person averaged into one template, by facecomp, and show how
@@ -327,7 +299,11 @@ the background; the photos are only read."
                                                   "Master photo ~d: ")))
               (values masters (facecomp-read-several "Photo to compare: " "Add another photo to compare (~d so far)?"
                                                      "Photo ~d: " (parent-path (first masters))))))
-      (let ((confidence (if confidence-asked (facecomp-read-confidence) *facecomp-detection-confidence*)))
+      (let ((confidence (if confidence-asked
+                            (read-decimal-number "Detection confidence for this run (~a): " 0.8
+                                                 :valid (lambda (n) (and (plusp n) (<= n 1)))
+                                                 :refusal "Not a number above 0 and at most 1.")
+                            *facecomp-detection-confidence*)))
         (cond ((null photos) (message "No photo to compare with the master"))
               ((null (user-program-path *facecomp-program*))
                (message "facecomp is not there: install it, or give its path in *facecomp-program*"))
@@ -341,8 +317,8 @@ the background; the photos are only read."
 (defun facecomp-health-words ()
   "What compares faces here, as \\[check-health] says it."
   (let ((program (user-program-path *facecomp-program*)))
-    (format nil "Faces in photos compared by ~:[none: install facecomp, or give its path in *facecomp-program*~;~:*~a, shut in~]"
-            (and program (abbreviated-path program)))))
+    (program-health-words "Faces in photos compared" (and program (abbreviated-path program))
+                          "install facecomp, or give its path in *facecomp-program*")))
 
 (defun install-facecomp ()
   "Make the report's photos buttons, and have \\[check-health] say what

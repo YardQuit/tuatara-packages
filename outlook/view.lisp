@@ -273,12 +273,6 @@ own."
 program's window, about 1,000 pixels across, so that a message written wide
 is not cut off; as long for their width as A4.")
 
-(defparameter *mail-page-seconds* 120
-  "The most processor seconds drawing a message as it looks may take.")
-
-(defparameter *mail-page-memory* (* 2 1024 1024 1024)
-  "The most memory drawing a message as it looks may take.")
-
 (defparameter *mail-fetching-pattern*
   "(?i)(?:\\b(?:src|background|poster)\\s*=\\s*[\"']?|url\\(\\s*[\"']?|@import\\s+[\"']|<link\\b[^>]*\\bhref\\s*=\\s*[\"']?)\\s*(?:https?:)?//"
   "What in a message's HTML would fetch a picture, a style or the like from
@@ -288,7 +282,7 @@ the internet when it is shown: never fetched here, only counted.")
   "TEXT, a Content-ID or what follows cid: in HTML, as the two are compared:
 without its angle brackets and spaces, %XX read as the octets they stand for."
   (let ((id (string-trim '(#\< #\> #\Space #\Tab) text)))
-    (if (find #\% id) (octets-string (percent-decoded-octets id)) id)))
+    (percent-decoded id)))
 
 (defun mail-page-html (html attachments folder)
   "HTML, a message's, made ready to be drawn from FOLDER: each picture it
@@ -355,18 +349,13 @@ tag, else at its end."
 
 (defun mail-pages-pdf (fd folder)
   "The PDF *OUTLOOK-PAGE-PROGRAM* (WeasyPrint) draws, shut in, of the message's
-HTML open at FD (MAIL-PAGE-HTML), as a sealed file in memory: laid out as on
-a screen, as its markup says, the pictures in FOLDER shown, your fonts used;
-nothing fetched, no script run. An error saying why when it draws none."
-  (multiple-value-bind (octets outcome said)
-      (sandbox-run *outlook-page-program* '("-q" "-p" "-m" "screen" "-e" "utf-8" "-u" "/tmp/parts/" "-s" "/tmp/page.css" "-" "-")
-                   :input fd :seconds *mail-page-seconds* :memory *mail-page-memory*
-                   :files (list (cons "/tmp/page.css" *mail-page-style*))
-                   :directories (cons (cons (string-right-trim "/" folder) "/tmp/parts") (sandbox-font-directories)))
-    (unless (and (eq outcome :done) (octets-at-p octets "%PDF"))
-      (error "~a drew no pages: ~(~a~)~@[: ~a~]" *outlook-page-program* outcome
-             (and (plusp (length said)) (subseq said 0 (min 300 (length said))))))
-    (memory-file "outlook-mail-pages" octets :kept nil)))
+HTML open at FD (MAIL-PAGE-HTML), as a sealed file in memory (SANDBOX-PDF):
+laid out as on a screen, as its markup says, the pictures in FOLDER shown,
+your fonts used; nothing fetched, no script run. An error saying why when it
+draws none."
+  (sandbox-pdf *outlook-page-program* '("-q" "-p" "-m" "screen" "-e" "utf-8" "-u" "/tmp/parts/" "-s" "/tmp/page.css" "-" "-") fd
+               :files (list (cons "/tmp/page.css" *mail-page-style*))
+               :directories (list (cons (string-right-trim "/" folder) "/tmp/parts"))))
 
 (defstruct (mail-pages-job (:include job) (:constructor make-mail-pages-job (buffer mail)) (:copier nil))
   "The message MAIL, shown in BUFFER, being made ready to be drawn as it
@@ -465,5 +454,6 @@ size and how to read it; NIL for any other file."
   "What reads Outlook's files here, as \\[check-health] says it."
   (let ((readpst (sandbox-find-program *outlook-readpst-program*))
         (pages (sandbox-find-program *outlook-page-program*)))
-    (format nil "Outlook items (.msg) and saved mail (.eml) by Tuatara; mailboxes (.pst, .ost) by ~:[none: install readpst (Fedora: libpst)~;~:*~a, shut in~]; messages as they look by ~:[none: install weasyprint~;~:*~a, shut in~]"
-            readpst pages)))
+    (format nil "Outlook items (.msg) and saved mail (.eml) by Tuatara; ~a; ~a"
+            (program-health-words "mailboxes (.pst, .ost)" readpst "install readpst (Fedora: libpst)")
+            (program-health-words "messages as they look" pages "install weasyprint"))))

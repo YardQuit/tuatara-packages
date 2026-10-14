@@ -77,39 +77,30 @@ their copies as the sandbox shows them, with CONFIDENCE for the run."
 
 (defun facematch-work (job)
   "What a comparison does: runs the engine shut in on copies of the photos
-\(RUN-ON-COPIES), and keeps its ranking, or why there is none."
-  (let ((program (or (user-program-path *facematch-program*)
-                     (error "The facematch engine is not there: build or install it, or give its path in *facematch-program*"))))
-    (multiple-value-bind (output outcome said names)
-        (run-on-copies program (list (cons "master" (facematch-job-masters job)) (cons "candidate" (facematch-job-candidates job)))
-                       (lambda (masters candidates) (facematch-arguments masters candidates (facematch-job-confidence job)))
-                       :seconds *facematch-seconds* :memory (* 16 1024 1024 1024)
-                       :cancel (job-cancel job))
-      (job-check-stop)
-      (let ((report (and (eq outcome :done) (copies-output-json output))))
-        (if (null report)
-            (setf (facematch-job-failure job) (run-on-copies-failure "The engine" outcome said names '*facematch-seconds*))
-            (multiple-value-bind (ranking groups) (facematch-ranking report names)
-              (if (every #'null groups)
-                  (setf (facematch-job-failure job)
-                        (format nil "Nothing compared: ~{~a~^; ~}"
-                                (map 'list (lambda (e) (copies-original-names e names)) (json-items report "errors"))))
-                  (setf (facematch-job-report job) report
-                        (facematch-job-ranking job) ranking
-                        (facematch-job-groups job) (remove nil groups)))))))))
+\(RUN-ON-COPIES-FOR-REPORT), and keeps its ranking, or why there is none."
+  (multiple-value-bind (report names failure)
+      (run-on-copies-for-report *facematch-program*
+                                (list (cons "master" (facematch-job-masters job)) (cons "candidate" (facematch-job-candidates job)))
+                                (lambda (masters candidates) (facematch-arguments masters candidates (facematch-job-confidence job)))
+                                :label "The engine" :seconds-setting '*facematch-seconds*
+                                :missing "The facematch engine is not there: build or install it, or give its path in *facematch-program*"
+                                :memory (* 16 1024 1024 1024) :cancel (job-cancel job))
+    (if (null report)
+        (setf (facematch-job-failure job) failure)
+        (multiple-value-bind (ranking groups) (facematch-ranking report names)
+          (if (every #'null groups)
+              (setf (facematch-job-failure job)
+                    (format nil "Nothing compared: ~{~a~^; ~}"
+                            (map 'list (lambda (e) (copies-original-names e names)) (json-items report "errors"))))
+              (setf (facematch-job-report job) report
+                    (facematch-job-ranking job) ranking
+                    (facematch-job-groups job) (remove nil groups)))))))
 
 ;;; The ranking, in rimu
 
 (defvar *facematch-ranking* (make-hash-table :test 'equal)
   "The ranking of the last comparison: each photo's full name to what the
 ranking column shows beside it (FACEMATCH-RANKING).")
-
-(defun facematch-label-face (percent)
-  "The face a candidate PERCENT probable is shown in: Very likely and above,
-Likely to Even chance, and below."
-  (cond ((>= percent 80) :info)
-        ((>= percent 45) :warning)
-        (t :error)))
 
 (defun facematch-ranking-cells (directory entries)
   "The ranking column's texts beside ENTRIES of DIRECTORY: each photo's
@@ -156,7 +147,7 @@ ranked order, those not compared after, as paths."
                  (setf (gethash photo ranking)
                        (list (cons (format nil "~5,1f%  ~17a" (if (realp percent) percent 0)
                                            (or (json-text r "label") ""))
-                                   (facematch-label-face (if (realp percent) percent 0)))
+                                   (likelihood-face (if (realp percent) percent 0)))
                              (cons (format nil "~@[ similarity ~,4f~]~@[  likeliest of ~d faces~]"
                                            (and (realp similarity) similarity) (and faces (> faces 1) faces))
                                    nil)))))
@@ -231,13 +222,6 @@ shown, in the order shown."
                              append (rimu-chosen-paths buffer :files-only t :mark *facematch-master-mark*))
                      :test #'string= :from-end t))
 
-(defun facematch-read-confidence ()
-  "Ask for this run's detection confidence, 0.8 offered."
-  (let ((value (parse-decimal (string-trim " " (read-string "Detection confidence for this run: " :initial "0.8")))))
-    (unless (and value (< 0 value) (<= value 1))
-      (error "The detection confidence must be above 0 and at most 1"))
-    value))
-
 (defun facematch-start (here)
   "Compare the master photos marked (M, in any rimu list) with the candidates
 marked (m) in the directory the current rimu list shows, in the background;
@@ -245,18 +229,18 @@ with HERE the ranking is to show in this list, else in a list of its own."
   (let* ((buffer (current-buffer))
          (confidence-asked (prefix-argument))
          (masters (facematch-masters))
-         (directory (rimu-list-directory buffer))
-         (candidates (and (rimu-list-p buffer)
-                          (loop for entry in (rimu-chosen buffer #\*)
-                                for path = (native (rimu-path directory entry))
-                                when (and (eq (rimu-leads-to entry) :regular) (not (member path masters :test #'string=)))
-                                  collect path))))
+         (candidates (remove-if (lambda (path) (member path masters :test #'string=))
+                                (rimu-chosen-paths buffer :files-only t :here-only t))))
     (cond ((not (rimu-list-p buffer)) (message "Candidates are marked in a rimu list (\\[rimu]), and compared from it"))
           ((null masters) (message "No master photo is marked: \\<rimu-mode>\\[facematch-mark-master] marks one (M)"))
           ((null candidates) (message "No candidate is marked in this directory: \\<rimu-mode>\\[list-mark-entry] marks one"))
           ((null (user-program-path *facematch-program*))
            (message "The facematch engine is not there: build or install it, or give its path in *facematch-program*"))
-          (t (let ((confidence (if confidence-asked (facematch-read-confidence) *facematch-detection-confidence*)))
+          (t (let ((confidence (if confidence-asked
+                                     (read-decimal-number "Detection confidence for this run (~a): " 0.8
+                                                          :valid (lambda (n) (and (plusp n) (<= n 1)))
+                                                          :refusal "Not a number above 0 and at most 1.")
+                                     *facematch-detection-confidence*)))
                (when (and confidence (not (and (realp confidence) (< 0 confidence) (<= confidence 1))))
                  (error "*facematch-detection-confidence* must be above 0 and at most 1, not ~s" confidence))
                (start-job-thread (make-facematch-job buffer masters candidates confidence here) #'facematch-work
@@ -293,8 +277,8 @@ Where the ranking shows already, show the list as it was instead."
 (defun facematch-health-words ()
   "What compares faces by probability here, as \\[check-health] says it."
   (let ((program (user-program-path *facematch-program*)))
-    (format nil "Faces ranked by probability by ~:[none: build the facematch engine, or give its path in *facematch-program*~;~:*~a, shut in~]"
-            (and program (abbreviated-path program)))))
+    (program-health-words "Faces ranked by probability" (and program (abbreviated-path program))
+                          "build the facematch engine, or give its path in *facematch-program*")))
 
 (defun install-facematch ()
   "Bind facematch's keys in rimu, give rimu the ranking column, and have

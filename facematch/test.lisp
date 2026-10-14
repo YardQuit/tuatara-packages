@@ -132,15 +132,11 @@ no arguments, gives true, or TRIES turns have gone."
                (true (tuatara.frontend.fake:fake-frame-showing f "Comparing 1 candidate with 1 master photo"))))
         (setf tuatara-user:*facematch-program* program)))))
 
-(define-test (facematch arguments-and-faces)
+(define-test (facematch arguments)
   ;; the engine's arguments: each master, the run's confidence, then the candidates
   (is equal '("--master" "/tmp/files/master-1.jpg" "--master" "/tmp/files/master-2.png" "--detection-confidence" "0.8000"
               "--json" "--candidate" "/tmp/files/candidate-1.jpg")
-        (facematch::facematch-arguments '("/tmp/files/master-1.jpg" "/tmp/files/master-2.png") '("/tmp/files/candidate-1.jpg") 0.8))
-  ;; the ODNI's words coloured by how probable
-  (is eq :info (facematch::facematch-label-face 97.2))
-  (is eq :warning (facematch::facematch-label-face 50))
-  (is eq :error (facematch::facematch-label-face 3.1)))
+        (facematch::facematch-arguments '("/tmp/files/master-1.jpg" "/tmp/files/master-2.png") '("/tmp/files/candidate-1.jpg") 0.8)))
 
 (define-test (facematch ranking-read)
   ;; the masters first, then the candidates ranked, one not compared after them with why, each once

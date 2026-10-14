@@ -464,14 +464,6 @@ gave it; any other item keeps its own name."
                 type))
       (native-file-name (mailbox-item-path item))))
 
-(defun mailbox-free-path (folder name)
-  "A path in FOLDER for a file called NAME where nothing is yet: NAME, else
-NAME with (2), (3) and so on before its ending."
-  (let ((stem (native-file-stem name)) (type (native-file-type name)))
-    (loop for n from 1
-          for path = (path-join folder (if (= n 1) name (format nil "~a (~d)~@[.~a~]" stem n type)))
-          unless (path-stamp path) return path)))
-
 (defstruct (mailbox-export-job (:include job) (:constructor make-mailbox-export-job (buffer items folder type)) (:copier nil))
   "ITEMS of the mailbox listed in BUFFER being copied out into FOLDER as
 TYPE (\"eml\" or \"msg\"), a job: COPIED of them so far, and NOT-COPIED,
@@ -494,7 +486,7 @@ those that could not be, each (ITEM . WHY)."
 
 (defun mailbox-export-work (job)
   "Copy each of JOB's items out into its folder, a new file each
-\(MAILBOX-EXPORT-NAME, MAILBOX-FREE-PATH), as JOB's type: an Outlook item
+\(MAILBOX-EXPORT-NAME, COPY-TO-FREE-NAME), as JOB's type: an Outlook item
 from the one readpst wrote beside the message; noting those that cannot be."
   (let ((folder (mailbox-export-job-folder job)) (type (mailbox-export-job-type job)))
     (dolist (item (mailbox-export-job-items job))
@@ -502,7 +494,7 @@ from the one readpst wrote beside the message; noting those that cannot be."
       (let ((from (if (and (string= type "msg") (mailbox-item-message item)) (mailbox-item-msg item) (mailbox-item-path item))))
         (handler-case
             (cond ((null from) (error "readpst wrote no Outlook item of it"))
-                  ((copy-regular-file from (mailbox-free-path folder (mailbox-export-name item type)) :cancel (job-cancel job))
+                  ((copy-to-free-name from folder (mailbox-export-name item type) :cancel (job-cancel job))
                    (incf (mailbox-export-job-copied job)))
                   (t (job-check-stop)))
           (error (e) (push (cons item (princ-to-string e)) (mailbox-export-job-not-copied job))))))))
