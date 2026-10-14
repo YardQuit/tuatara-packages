@@ -18,8 +18,9 @@ message of a mailbox. Who it is from and to, its dates and subject, its
 attachments, its text (its plain text, else its HTML or RTF read as text),
 what else it says of itself, and its internet headers whole. Nothing in it is
 run, and nothing it points to fetched.
-\\<mail-view-mode>\\[push-button] on an attachment opens it here, safely, from a copy only you
-can read (one that is a message as a message); \\[mail-open-attachment-outside] opens that copy in
+\\<mail-view-mode>\\[push-button] on an attachment opens it here, from a copy only you can
+read: a message as a message, a PDF, an Office document or a picture as
+rimu shows it, drawn shut in the sandbox, anything else safely; \\[mail-open-attachment-outside] opens that copy in
 the desktop's program, after asking; \\[forward-button] and \\[backward-button] go from one
 attachment to the next; \\[mail-view-pages] shows it as it looks, its HTML drawn as pages,
 nothing fetched; \\[mail-view-file-text] shows the file of the message itself, as
@@ -77,6 +78,19 @@ reader, or shown in the text, when it is."
 (defparameter *mail-brief-lines* 40
   "The lines of a message's text a preview shows.")
 
+(defun mail-header-lines (mail)
+  "The headers of MAIL shown above it, each (LABEL VALUE FACE), on one line:
+those it has, who it is from and to, its subject, dates and Message-ID."
+  (remove-if-not (lambda (line) (plusp (length (second line))))
+                 (list (list "From" (mail-line (mail-from mail)))
+                       (list "To" (mail-line (mail-to mail)))
+                       (list "Cc" (mail-line (mail-cc mail)))
+                       (list "Bcc" (mail-line (mail-bcc mail)))
+                       (list "Subject" (or (mail-line (mail-subject mail)) "(none)") :strong)
+                       (list "Sent" (or (time-words (mail-sent mail)) (mail-line (mail-date-text mail))))
+                       (list "Received" (time-words (mail-received mail)))
+                       (list "Message-ID" (mail-line (mail-message-id mail))))))
+
 (defun mail-pieces (mail &key brief (open (constantly nil)))
   "The pieces (as RENDER-PIECES takes them) showing MAIL: its headers, its
 attachments, each a button doing OPEN, a function of the attachment; its
@@ -85,20 +99,11 @@ headers. With BRIEF, its headers, its attachments' names and the start of its
 text alone, no buttons."
   (let ((pieces '()))
     (labels ((put (text &optional face) (push (if face (cons text face) text) pieces))
-             (line (label value &optional face)
-               (when (and value (plusp (length value)))
-                 (put (format nil "~11a " label) :type)
-                 (put (mail-line value) face)
-                 (put (string #\Newline))))
              (heading (text) (put (format nil "~%~a~%" text) :heading)))
-      (line "From" (mail-from mail))
-      (line "To" (mail-to mail))
-      (line "Cc" (mail-cc mail))
-      (line "Bcc" (mail-bcc mail))
-      (line "Subject" (or (mail-subject mail) "(none)") :strong)
-      (line "Sent" (or (time-words (mail-sent mail)) (mail-date-text mail)))
-      (line "Received" (time-words (mail-received mail)))
-      (line "Message-ID" (mail-message-id mail))
+      (loop for (label value face) in (mail-header-lines mail)
+            do (put (format nil "~11a " label) :type)
+               (put value face)
+               (put (string #\Newline)))
       (let ((attachments (mail-attachments mail)))
         (when attachments
           (heading (format nil "Attachments: ~d" (length attachments)))
@@ -206,20 +211,28 @@ for you alone and read only: made the first time, and again when it has gone."
         (setf (mail-attachment-copy-path attachment)
               (write-private-copy (attachment-file-name (mail-attachment-name attachment)) (mail-attachment-octets attachment))))))
 
+(defparameter *mail-attachment-views* '(pdf-view-visit office-view-visit image-view-visit)
+  "The views an attachment is shown by, as a file of its kind is in rimu: a
+PDF as its pages, an Office document as its pages drawn by LibreOffice (or
+read as text), a picture as itself, each drawn shut in the sandbox. Each is
+a function of a path and a function showing the buffer, returning the buffer
+or NIL for a file it does not show.")
+
 (defun mail-open-attachment (attachment)
   "Open ATTACHMENT of a message shown, here: a message as one; any
 other from its private copy (MAIL-ATTACHMENT-COPY), an Outlook item or a
-saved mail as a message, the rest visited safely (read only, nothing in it
-acted on, a binary one in the hex view). Nothing is saved where you keep
-your files."
+saved mail as a message, a PDF, an Office document or a picture as rimu
+shows it (*MAIL-ATTACHMENT-VIEWS*), the rest visited safely (read only,
+nothing in it acted on, a binary one in the hex view). Nothing is saved
+where you keep your files."
   (let ((name (or (mail-line (mail-attachment-name attachment)) "The attachment")))
     (cond ((mail-attachment-message attachment)
            (mail-show-message (mail-attachment-message attachment) name))
           ((mail-attachment-octets attachment)
            (let ((copy (mail-attachment-copy attachment)))
-             (if (outlook-message-kind copy)
-                 (show-buffer (mail-view-buffer copy :safe t))
-                 (visit-path copy :safe t))
+             (cond ((outlook-message-kind copy) (show-buffer (mail-view-buffer copy :safe t)))
+                   ((some (lambda (view) (funcall view copy (lambda (buffer) (show-buffer buffer)))) *mail-attachment-views*))
+                   (t (visit-path copy :safe t)))
              (message "~a opened from a copy only you can read; \\<mail-view-mode>\\[mail-open-attachment-outside] in the message opens it outside" name)))
           (t (message "~a: ~a" name (or (mail-attachment-why attachment) "nothing to open"))))))
 
@@ -301,6 +314,45 @@ how many pictures, styles and the like it would fetch from the internet
              :simple-calls t)
             (/ (length (cl-ppcre:all-matches *mail-fetching-pattern* html)) 2))))
 
+(defun mail-page-head (mail)
+  "MAIL's headers (MAIL-HEADER-LINES) and its attachments' names as HTML, a
+table drawn above the message as a mail program prints it, in the message's
+own colours."
+  (let ((names (loop for attachment in (mail-attachments mail)
+                     unless (mail-attachment-hidden attachment)
+                       collect (or (mail-line (mail-attachment-name attachment)) "(no name)"))))
+    (with-output-to-string (out)
+      (format out "<table style=\"border-collapse:collapse;margin:0 0 4mm;width:100%;font:10pt sans-serif;~
+                   border-bottom:1px solid currentColor\">")
+      (loop for (label value face) in (append (mail-header-lines mail)
+                                              (and names (list (list "Attachments" (format nil "~{~a~^; ~}" names)))))
+            do (format out "<tr><th style=\"text-align:left;vertical-align:top;padding:0 3mm 1mm 0;white-space:nowrap\">~a</th>~
+                            <td style=\"padding:0 0 1mm;overflow-wrap:anywhere;font-weight:~:[normal~;bold~]\">~a</td></tr>"
+                       (docx-escape label) (eq face :strong) (docx-escape value)))
+      (format out "</table>"))))
+
+(defun mail-page-foot (mail)
+  "MAIL's internet headers whole, as they came, as HTML: a page of their own
+after the message, or NIL when it has none."
+  (when (mail-headers mail)
+    (format nil "<div style=\"break-before:page;font:10pt sans-serif\"><p style=\"margin:0 0 3mm;font-weight:bold\">Internet headers</p>~
+                 <pre style=\"margin:0;font:8pt monospace;white-space:pre-wrap;overflow-wrap:anywhere\">~a</pre></div>"
+            (docx-escape (string-right-trim '(#\Newline) (remove #\Return (mail-headers mail)))))))
+
+(defun mail-page-with-headers (html mail)
+  "HTML, a message's, with MAIL's headers (MAIL-PAGE-HEAD) at the start of
+its body, after its <body> tag, else after its <head>, else at its start,
+after its doctype and <html> tag; and its internet headers (MAIL-PAGE-FOOT)
+at the end of its body, before its last </body> tag, else its last </html>
+tag, else at its end."
+  (let ((start (or (nth-value 1 (cl-ppcre:scan "(?i)<body\\b[^>]*>|</head\\s*>" html))
+                   (nth-value 1 (cl-ppcre:scan "(?i)^\\s*(?:<!doctype[^>]*>\\s*)?(?:<html\\b[^>]*>)?" html))))
+        (end (flet ((last-at (regex) (let ((all (cl-ppcre:all-matches regex html))) (and all (first (last all 2))))))
+               (or (last-at "(?i)</body\\s*>") (last-at "(?i)</html\\s*>") (length html)))))
+    (when (< end start) (setf end start))
+    (concatenate 'string (subseq html 0 start) (mail-page-head mail) (subseq html start end)
+                 (or (mail-page-foot mail) "") (subseq html end))))
+
 (defun mail-pages-pdf (fd folder)
   "The PDF *OUTLOOK-PAGE-PROGRAM* (WeasyPrint) draws, shut in, of the message's
 HTML open at FD (MAIL-PAGE-HTML), as a sealed file in memory: laid out as on
@@ -340,7 +392,7 @@ folder for you alone in the cache directory, with the pictures it shows."
       (let ((folder (new-private-folder (private-cache-directory "mail-pages/"))))
         (multiple-value-bind (ready fetching) (mail-page-html html (mail-attachments mail) folder)
           (setf (mail-pages-job-fetching job) fetching
-                (mail-pages-job-path job) (write-new-file (path-join folder "message.html") ready)))))))
+                (mail-pages-job-path job) (write-new-file (path-join folder "message.html") (mail-page-with-headers ready mail))))))))
 
 (defmethod job-take-in ((job mail-pages-job))
   "Show the message as it looks, as pages, or say why it is not."

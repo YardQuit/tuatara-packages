@@ -30,6 +30,7 @@ here.
 
 | Where | Key | What it does |
 |---|---|---|
+| A message | `RET`, a click | Opens the attachment at point here, from a copy only you can read: an attached message as a message; a PDF, an Office document or a picture as rimu shows it, as pages or as the picture, drawn shut in the sandbox; anything else safely, read only. |
 | A message | `O` | Opens the attachment at point in the desktop's own program for its kind, after asking: a copy only you can read, and only a kind that may be opened outside Tuatara (a picture, a PDF, a sound, a video, an Office document). That program is not shut in the sandbox. |
 | A message | `P` | Shows it as it looks: its HTML drawn as pages, its pictures in place, nothing fetched from the internet, no script run (see Seeing a message as it looks). `T` there comes back to the message. |
 | A message | `T` | Shows the message's file as its text: opened safely when the message came from a mailbox or an attachment, else as any file is opened. |
@@ -57,8 +58,10 @@ list is closed. Install libpst from your system's packages
 
 `P` in a message draws it as a mail program shows it: its HTML laid out as
 on a screen, its colours, tables and fonts, the pictures it carries in their
-places. The pages are shown in Tuatara's PDF view, with its keys (zoom, search,
-the text). The message's HTML comes from the message itself: the HTML part
+places, under its headers (from, to, subject, dates, attachments) as a mail
+program prints it, and its internet headers whole, as they came, on a page
+of their own after it. The pages are shown in Tuatara's PDF view, with its
+keys (zoom, search, the text). The message's HTML comes from the message itself: the HTML part
 of a saved mail, or an Outlook item's HTML, or the HTML its rich text keeps.
 A message of plain text alone looks as it is shown already.
 

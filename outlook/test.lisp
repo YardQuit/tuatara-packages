@@ -487,8 +487,19 @@ Returns the frontend and the editor."
           (true (tuatara.buffer:buffer-local buffer :read-only))
           (has (session-text editor) "Kea survey results")
           (tuatara.buffer:kill-buffer buffer)))
-      ;; RET on the picture: its private copy opened safely; on the item attached, a message
-      (multiple-value-bind (f editor) (outlook-session path (list (to-attachment 0) "RET"))
+      ;; RET on the picture: its private copy shown as rimu shows it, a picture drawn in the sandbox
+      (when (and (eq :ready (tuatara.io:sandbox-status)) (tuatara.defaults::find-image-decoder))
+        (multiple-value-bind (f editor) (outlook-session path (list (to-attachment 0) "RET"))
+          (declare (ignore f))
+          (let* ((view (tuatara.defaults::image-view-of (session-buffer editor)))
+                 (copy (and view (tuatara.defaults::image-view-path view))))
+            (true view)
+            (is string= "kea.png" (and copy (tuatara.io:native-file-name copy)))
+            (tuatara.buffer:kill-buffer (session-buffer editor))
+            (when (and copy (search "/opened/" copy)) (tuatara.io:delete-tree (tuatara.io:parent-path copy))))))
+      ;; with no view for it, its private copy opened safely; on the item attached, a message
+      (multiple-value-bind (f editor) (let ((outlook::*mail-attachment-views* '()))
+                                        (outlook-session path (list (to-attachment 0) "RET")))
         (declare (ignore f))
         (let* ((shown (session-buffer editor))
                (copy (tuatara.io:native (tuatara.buffer:buffer-file shown))))
@@ -553,6 +564,36 @@ Returns the frontend and the editor."
       (let ((odd (outlook::make-mail-attachment :name "x.p/n g" :octets *png-test-octets* :content-id "odd")))
         (has (outlook::mail-page-html "<img src=cid:odd>" (list odd) folder) "src=part-1>")))))
 
+(define-test (outlook page-head)
+  ;; the headers drawn at the start of the body, written as text, never as markup
+  (let ((mail (outlook::make-mail :from "Kea <kea@example.org>" :subject "Tui & </td><script>x</script>"
+                                  :attachments (list (outlook::make-mail-attachment :name "kea.png")
+                                                     (outlook::make-mail-attachment :name "logo.png" :hidden t)))))
+    (flet ((head-at (html) (search "<table" (outlook::mail-page-with-headers html mail))))
+      (is = 20 (head-at "<html><body class=a><p>x</p></body></html>"))
+      (is = 19 (head-at "<html><head></head><p>x</p></html>"))
+      (is = 21 (head-at "<!DOCTYPE html><html><p>x</p></html>"))
+      (is = 0 (head-at "<p>x</p>")))
+    (let ((head (outlook::mail-page-head mail)))
+      (has head "Kea &lt;kea@example.org&gt;")
+      (has head "Tui &amp; &lt;/td&gt;&lt;script&gt;")
+      (false (search "<script" head))
+      (has head "kea.png")
+      (false (search "logo.png" head)))
+    ;; the internet headers on a page of their own, before the last end of the body
+    (false (outlook::mail-page-foot mail))
+    (setf (outlook::mail-headers mail) (format nil "Received: from <mx>~c~cX-Note: a & b~c~c" #\Return #\Newline #\Return #\Newline))
+    (let ((foot (outlook::mail-page-foot mail)))
+      (has foot "Received: from &lt;mx&gt;
+X-Note: a &amp; b</pre>")
+      (flet ((foot-before (html tail) (let ((all (outlook::mail-page-with-headers html mail)))
+                                        (is = (- (length all) (length tail)) (+ (search foot all) (length foot))))))
+        (foot-before "<html><body><p>x</p></body><!-- </body> --></BODY></html>" "</BODY></html>")
+        (foot-before "<html><p>x</p></html>" "</html>")
+        (foot-before "<p>x</p>" "")
+        ;; an end of the body before its start: both after the start
+        (foot-before "</body><body><p>x</p>" "<p>x</p>")))))
+
 (defun mail-pages-drawn-p ()
   "True when messages can be drawn as they look here: the sandbox ready,
 WeasyPrint installed in it and a program drawing PDFs."
@@ -586,9 +627,14 @@ WeasyPrint installed in it and a program drawing PDFs."
               (true (tuatara.command::buffer-mode-named-p pages 'tuatara.defaults::pdf-view-mode))
               (let ((text (tuatara.buffer:buffer-string pages)))
                 (has text "Kea & kaka seen")
+                ;; its headers above it, as a mail program prints it
+                (has text "Kea survey results")
+                (has text "Ruru Watcher")
+                (has text "X-Origin: tested")
                 (false (search "alert" text)))
               (let ((view (tuatara.defaults::pdf-view-of pages)))
-                (is = 1 (tuatara.defaults::pdf-view-pages view))
+                ;; the message, then its internet headers on a page of their own
+                (is = 2 (tuatara.defaults::pdf-view-pages view))
                 ;; fitted to the window's width, to be read
                 (is eq :width (tuatara.defaults::pdf-view-zoom view))
                 (has (tuatara.defaults::pdf-view-words view) "1 thing from the internet not fetched"))
