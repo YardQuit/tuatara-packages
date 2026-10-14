@@ -349,7 +349,7 @@ it was sent, whom from, its attachments and its subject."
   (let ((mark (entry-mark list item)))
     (table-row-pieces *mailbox-columns*
                       (list (list-mark-sign mark)
-                            (cons (or (mail-short-time (mailbox-item-sent item)) "") :comment)
+                            (cons (or (mail-short-time (mailbox-item-sent item)) "") :list-date)
                             (or (mailbox-item-from item) "")
                             (if (plusp (mailbox-item-attachments item)) (princ-to-string (mailbox-item-attachments item)) "")
                             (cons (or (mailbox-item-subject item) "(no subject)") (list-mark-face mark))))))

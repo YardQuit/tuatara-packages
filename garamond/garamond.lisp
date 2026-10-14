@@ -232,25 +232,28 @@ octets of a buffer whose text from the octet START is TEXT."
 
 (defun garamond-gaps (buffer start end spaces)
   "The runs of spaces of BUFFER from START to END after a sentence's end in
-prose that are not SPACES long, each (FROM . TO) in octets
-\(GARAMOND-GAP-RUNS): not after a list item's number, nor in code, tables,
-links or maths (PROSE-TEST, Org's parse read once)."
+prose that are not as long as they should be, each (FROM TO . WIDE) in octets
+\(GARAMOND-GAP-RUNS), WIDE the spaces it should have: SPACES, or one after an
+abbreviation (ABBREVIATION-BEFORE-P: e.g., Dr.), whose full stop ends no
+sentence; not after a list item's number, nor in code, tables, links or maths
+\(PROSE-TEST, Org's parse read once)."
   (let ((text (buffer-string buffer :start start :end end))
         (prose-p (prose-test buffer)))
     (loop for (from . to) in (runs-octets text (garamond-gap-runs text) start)
           for stop = (garamond-sentence-end-before buffer from)
-          when (and stop (/= (- to from) spaces)
+          for wide = (if (and stop (abbreviation-before-p buffer stop)) 1 spaces)
+          when (and stop (/= (- to from) wide)
                     (not (garamond-enumerator-p buffer stop))
                     (funcall prose-p (buffer-forward-char buffer stop -1)))
-          collect (cons from to))))
+          collect (list* from to wide))))
 
 (define-command garamond-adjust-spacing ()
   "Make every run of spaces after a sentence's end in the selection, or the
 whole buffer without one, 1 or 2 spaces, as one change, then say the buffer
 uses that spacing as \\[garamond-set-spacing] does. A sentence's end here is
 . ? ! … or ‽ after a letter, with any closing quotes or brackets, before more
-text on the line; abbreviations count too, so that the text is the same
-throughout. Line breaks, indentation, a list item's number and what is not
+text on the line. After an abbreviation's full stop (e.g., Dr.) there is always one
+space, as filling leaves it. Line breaks, indentation, a list item's number and what is not
 prose (code, tables, links, maths) are left as they are. A count gives the
 spacing, else it is asked; whether to write it in the file is asked only for
 the whole buffer."
@@ -262,11 +265,13 @@ the whole buffer."
     (unless (too-large-here-p start end "Spacing sentences")
       (multiple-value-bind (spaces persist) (garamond-read-spacing (null region))
         (let* ((gaps (garamond-gaps b start end spaces))
-               (filler (make-string spaces :initial-element #\Space)))
+               (after-abbreviations (count-if (lambda (gap) (/= (cddr gap) spaces)) gaps)))
           (when gaps
-            (delete-spans b gaps :replacements (make-list (length gaps) :initial-element filler)))
+            (delete-spans b (mapcar (lambda (gap) (cons (first gap) (second gap))) gaps)
+                          :replacements (mapcar (lambda (gap) (make-string (cddr gap) :initial-element #\Space)) gaps)))
           (let ((said (garamond-declare b spaces persist)))
-            (message "~d sentence break~:p made ~d space~:p~a" (length gaps) spaces said)))))))
+            (message "~d sentence break~:p made ~d space~:p~[~:;, ~:*~d after an abbreviation one~]~a"
+                     (- (length gaps) after-abbreviations) spaces after-abbreviations said)))))))
 
 ;;; A file that says
 

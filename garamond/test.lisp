@@ -69,13 +69,14 @@ frontend, as a second value."
         (text (format nil "One.  Two. Three!   Four e.g.  five.~%1.  Item.~%  Indented.~%")))
     (multiple-value-bind (f editor)
         (run-keys "M-x t e x t - m o d e RET C-u 2 M-x g a r a m o n d - a d j u s t - s p a c i n g RET" :text text :width 80)
-      (is string= (format nil "One.  Two.  Three!  Four e.g.  five.~%1.  Item.~%  Indented.~%") (session-text editor))
-      (true (tuatara.frontend.fake:fake-frame-showing f "2 sentence breaks made 2 spaces"))
+      ;; one space after an abbreviation, as filling leaves it
+      (is string= (format nil "One.  Two.  Three!  Four e.g. five.~%1.  Item.~%  Indented.~%") (session-text editor))
+      (true (tuatara.frontend.fake:fake-frame-showing f "2 sentence breaks made 2 spaces, 1 after an abbreviation one"))
       (true (tuatara.frontend.fake:fake-frame-showing f "2S")))
     (is string= (format nil "One. Two. Three! Four e.g. five.~%1.  Item.~%  Indented.~%")
         (session-text (nth-value 1 (run-keys "M-x t e x t - m o d e RET C-u 1 M-x g a r a m o n d - a d j u s t - s p a c i n g RET" :text text :width 80))))
     ;; an empty selection is none: the whole buffer is adjusted
-    (is string= (format nil "One.  Two.  Three!  Four e.g.  five.~%1.  Item.~%  Indented.~%")
+    (is string= (format nil "One.  Two.  Three!  Four e.g. five.~%1.  Item.~%  Indented.~%")
         (session-text (nth-value 1 (run-keys "M-x t e x t - m o d e RET C-SPC C-u 2 M-x g a r a m o n d - a d j u s t - s p a c i n g RET" :text text :width 80))))
     ;; in Org, a source block's text is left as it is
     (is string= (format nil "A.  B.~%#+begin_src sh~%echo a. b~%#+end_src~%")
@@ -149,5 +150,5 @@ frontend, as a second value."
     (unwind-protect
          (progn
            (tuatara.defaults::set-major-mode b 'tuatara.defaults::text-mode)
-           (is equal '((19 . 20)) (garamond::garamond-gaps b 0 (tuatara.buffer:buffer-size b) 2)))
+           (is equal '((19 20 . 2)) (garamond::garamond-gaps b 0 (tuatara.buffer:buffer-size b) 2)))
       (tuatara.buffer:kill-buffer b))))
