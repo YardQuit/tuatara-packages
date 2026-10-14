@@ -41,7 +41,8 @@ here.
 | A mailbox | `C-x / l` | Lists the filters narrowing the list, each with how many items it leaves; there `d` takes away the filter on the line and `D` all of them. |
 | A mailbox | `C-x / r` | Takes every filter away: the whole list again. |
 | A message | `q` | Closes it, back to the mailbox (or wherever it was opened from); `h` moves the cursor left, as everywhere. |
-| A mailbox | `q`, `h` | Closes it. |
+| A mailbox | `q` | Closes it. |
+| A mailbox | `h` | Asks, then closes it and goes back to its folder in rimu, on the mailbox. The moves by word (`w`, `b`, `W`, `B`) do nothing in the list; `V` is the one selection, of whole lines. |
 
 ## Mailboxes
 

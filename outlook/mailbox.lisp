@@ -25,12 +25,13 @@
 folders, and under each its messages, a line each: when it was sent, whom
 from, how many attachments it has and its subject. \\<mailbox-mode>\\[mailbox-open-item] or \\`l' opens the
 message on the line, read only, the matches of the list's filters lit in it,
-and \\`h' there comes back; on a folder's line it folds or unfolds the
+\\`P' there shows it as it looks and \\`q' comes back; on a folder's line it folds or unfolds the
 folder, as \\[list-toggle-fold] does, and \\[list-toggle-all-folds] folds or unfolds them all.
 \\[list-mark-entry] marks the message on the line (>), \\[list-unmark-entry] takes its mark off, \\[list-unmark-all] takes
 every mark off; \\[mailbox-export] copies those marked, or the one on the line, out
 into a folder, as saved mail (.eml) or as Outlook items (.msg).
-\\[quit-window] or \\`h' closes the list, and the messages readpst wrote for it are
+\\[quit-window] closes the list, \\[mailbox-back-to-folder] too, after asking, going back to its folder in
+rimu; the messages readpst wrote for it are
 deleted with it.
 \\[regex-search-forward] and \\[regex-search-backward] narrow the list as a regular
 expression is typed to the messages whose headers, any of them, or contents
@@ -421,6 +422,16 @@ saying how to get them. Returns the buffer, or NIL for a file of another kind."
                                              *outlook-readpst-program*)))
       (file-view-show native (remove-if-not #'live-buffer-p *mailboxes*) (lambda (b) (buffer-local b 'mailbox-path))
                       (lambda () (mailbox-buffer native)) show))))
+
+(define-command mailbox-back-to-folder ()
+  "Close the list of the mailbox, after asking, and list its folder with rimu,
+point on the mailbox: the messages readpst wrote for it are deleted, as
+when it is closed any other way."
+  (let* ((buffer (current-buffer))
+         (path (buffer-local buffer 'mailbox-path)))
+    (when (and path (yes-or-no-p* (format nil "Close ~a and go back to its folder in rimu?" (buffer-name buffer))))
+      (rimu-show-file path)
+      (kill-buffer buffer))))
 
 (define-command mailbox-open-item ()
   "Open the item of the mailbox on the current line: a message as one, read

@@ -826,11 +826,14 @@ and the subjects kept."
           (false (outlook::mailbox-item-msg second))
           (is = 3 (reduce #'+ (outlook::mailbox-job-folders job) :key (lambda (f) (length (cdr f)))))
           (tuatara.modes:set-major-mode list 'outlook::mailbox-mode)
+          (setf (tuatara.buffer:buffer-local list 'outlook::mailbox-path) pst)
           (outlook::mailbox-render list job)
-          (let ((shown '()) (opened nil) (moved nil) (back nil) (marked nil)
+          (let ((shown '()) (opened nil) (moved nil) (back nil) (marked nil) (stayed nil)
                 (copies (namestring (merge-pathnames "copies/" dir))))
             (tuatara.tests::run-keys
              (list (lambda () (tuatara:show-buffer list))
+                   ;; h asks before it goes back to the folder: no, and the list stays
+                   "h n RET" (lambda () (setf stayed (tuatara:current-buffer)))
                    ;; m marks the message on the line and moves down; RET and l on a folder's line fold it
                    "m" (lambda () (setf marked (tuatara.defaults::list-marked list :marked)))
                    "k k RET" (lambda () (push (tuatara.buffer:buffer-string list) shown))
@@ -846,6 +849,12 @@ and the subjects kept."
             (is equal (list first) marked)
             (true (search "> 2026-10-06" (tuatara.buffer:buffer-string list)))
             ;; the line over the list says the keys, those of a message opened from it too
+            ;; moves by word and selections but V's do nothing in the list
+            (dolist (keys '("w" "b" "W" "B" "v" "%"))
+              (is eq :undefined (tuatara.command:lookup-key (tuatara.modes:mode-keymap 'outlook::mailbox-mode)
+                                                            (tuatara.frontend:parse-key-sequence keys))))
+            (false (tuatara.command:lookup-key (tuatara.modes:mode-keymap 'outlook::mailbox-mode) (tuatara.frontend:parse-key-sequence "V")))
+            (is eq list stayed)
             (has (tuatara.buffer:buffer-string list) "RET or l opens the item on the line, a folder's line folds; P in a message shows it as it looks, q comes back;")
             (has (first (rest shown)) "▸ Outlook Data File/Inbox  2")
             (false (search "Second" (first (rest shown))))
@@ -870,7 +879,17 @@ and the subjects kept."
               (outlook::mailbox-export-work job)
               (is = 0 (outlook::mailbox-export-job-copied job))
               (has (cdr (first (outlook::mailbox-export-job-not-copied job))) "no Outlook item"))))
-        (tuatara.buffer:kill-buffer list)))))
+        ;; h, answered yes: the list closed, its folder listed by rimu, point on the mailbox
+        (let ((folder nil))
+          (tuatara.tests::run-keys
+           (list (lambda () (tuatara:show-buffer list))
+                 "h y RET" (lambda () (setf folder (tuatara:current-buffer))))
+           :width 140 :height 30)
+          (false (tuatara.buffer:live-buffer-p list))
+          (true (tuatara.defaults::rimu-list-p folder))
+          (is string= "archive.pst" (tuatara.io:native-file-name (tuatara.defaults::shown-file folder)))
+          (tuatara.buffer:kill-buffer folder))
+        (when (tuatara.buffer:live-buffer-p list) (tuatara.buffer:kill-buffer list))))))
 
 (define-test (outlook mailbox-without-readpst)
   (with-test-directory (dir)
