@@ -32,18 +32,38 @@ here.
 |---|---|---|
 | A message | `O` | Opens the attachment at point in the desktop's own program for its kind, after asking: a copy only you can read, and only a kind that may be opened outside Tuatara (a picture, a PDF, a sound, a video, an Office document). That program is not shut in the sandbox. |
 | A message | `T` | Shows the message's file as its text: opened safely when the message came from a mailbox or an attachment, else as any file is opened. |
-| A mailbox | `RET` | Opens the item on the line: a message as one, read only, the matches of the list's filters lit in it; a contact or an appointment as its text, safely. |
+| A message | `h` | Closes it, back to the mailbox (or wherever it was opened from). |
+| A mailbox | `RET`, `l` | Opens the item on the line: a message as one, read only, the matches of the list's filters lit in it; a contact or an appointment as its text, safely. On a folder's line, folds or unfolds the folder. |
+| A mailbox | `TAB`, `S-TAB` | Folds or unfolds the folder the line is in; every folder. |
+| A mailbox | `m`, `u`, `U` | Marks the message on the line (`>`) and moves down; takes its mark off; takes every mark off. A count marks as many. |
+| A mailbox | `C` | Copies the messages marked, or the one on the line, out into a folder: asks first for the format, `eml` (saved mail) or `msg` (Outlook item), then for the folder (made when it is not there). |
 | A mailbox | `C-s`, `C-r` | Narrows the list, as a regular expression is typed, to the messages whose headers or contents match (see Searching a mailbox). `RET` keeps the pattern as a filter, `C-g` lets the one typed go. |
 | A mailbox | `C-x / l` | Lists the filters narrowing the list, each with how many items it leaves; there `d` takes away the filter on the line and `D` all of them. |
 | A mailbox | `C-x / r` | Takes every filter away: the whole list again. |
-| Either | `q` | Closes it. |
+| Either | `q` | Closes it (`h` too in a mailbox). |
 
 ## Mailboxes
 
 A mailbox is read by `readpst`, of the libpst package, shut in Tuatara's
 sandbox: no network, and none of your files but the mailbox. Its messages are
-written to your cache folder. Install libpst from your system's packages
+written to your cache folder, each twice, as saved mail and as an Outlook
+item, so that they can be copied out as either; they are deleted when the
+list is closed. Install libpst from your system's packages
 (`readpst` on the `PATH` of the system's own program folders).
+
+## Copying messages out
+
+`C` copies the messages marked with `m` (or, with none marked, the one on the
+line) out of the mailbox into a folder you choose, each a file of its own:
+as saved mail (`.eml`, internet mail as readpst wrote it) or as Outlook items
+(`.msg`, written by readpst from the mailbox itself, beside each `.eml`). A
+copy is named by when the message was sent and its subject,
+`2001-04-30 2031 unit for sale.msg`; a name already taken gets `(2)`, `(3)`
+and so on, and nothing in the folder is overwritten. Characters a name cannot
+hold on other systems' drives (`: * ? " < > | / \`) are left out or made `-`.
+Copying runs in the background; the message line then says how many were
+copied and which could not be. Marks stay on messages a filter hides, and
+`C` copies them too: the question names how many it copies.
 
 ## Searching a mailbox
 
