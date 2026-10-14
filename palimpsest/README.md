@@ -50,7 +50,7 @@ The report has three parts:
 | The report | `RET` | On `revision-N.pdf`, opens that revision in Tuatara's PDF view; on `revision-N.log`, opens its log; on an object's number, shows the object. |
 | The report | `TAB`, `S-TAB` | Go from one link to the next. |
 | The report | `s` | Saves the revisions, their logs and the report (`M-x palimpsest-save`): see below. |
-| The report | `o` | Shows an object: where it is in the file, its dictionary as written, its stream decoded, as text, or as a hex dump when it is not text (always as a hex dump with `C-u o`). Asks for its number, offering the one at point. |
+| The report | `o` | Shows an object: where it is in the file, its dictionary as written, its stream decoded, as text, or in hex in a buffer of its own when it is not text (in hex too with `C-u o`); `RET` on that buffer's name shows it. Asks for its number, offering the one at point. |
 | The report, a revision opened from it | `w` | Writes a revision as a PDF of its own, to show to others, its log beside it, and opens it (`M-x palimpsest-write-revision`): the revision whose part of the report the cursor is in, or the revision you are looking at; else it asks which, offering the one before the latest. |
 | The report | `C-x C-w` | Writes the report alone as text, offered as `NAME-revision-report.txt` beside the PDF examined (`M-x palimpsest-write-report`); nothing written over. |
 | Either | `q` | Closes it. Closing the report deletes its own copies of the revisions and logs; when they were not saved it asks first: `Revisions and logs not saved: close and delete them? (y or n)`. |

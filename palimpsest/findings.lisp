@@ -37,7 +37,7 @@ concerns."
 (defun hex-words (octets start end &optional (most 96))
   "The octets of OCTETS from START below END in hex, at most MOST of them, ... after more."
   (let ((end (min end (length octets))))
-    (format nil "~{~2,'0x~^ ~}~:[~; ...~]" (coerce (subseq octets start (min end (+ start most))) 'list) (> (- end start) most))))
+    (format nil "~a~:[~; ...~]" (octets-hex octets :start start :end (min end (+ start most)) :upper-case t :separator " ") (> (- end start) most))))
 
 (defun text-words (octets start end &optional (most 200))
   "The octets of OCTETS from START below END as text, a character each, those
@@ -57,24 +57,24 @@ the stream it names), in hex and as text."
 
 (defun filter-names (object)
   "The filters of OBJECT's stream, in words."
-  (let ((filters (mapcar #'car (filters-of (pobj-value object)))))
+  (let ((filters (mapcar #'car (pdf-stream-filters (pdf-indirect-value object)))))
     (if filters (format nil "~{~a~^ then ~}" filters) "none")))
 
 (defun stream-steps (pdf object)
   "The steps to reach the decoded octets of OBJECT's stream by hand."
   (let ((octets (pdf-octets pdf)))
-    (if (pobj-packed-in object)
-        (list (format nil "Object ~d is kept in object stream ~d: decode that first." (pobj-number object) (pobj-packed-in object)))
+    (if (pdf-indirect-packed-in object)
+        (list (format nil "Object ~d is kept in object stream ~d: decode that first." (pdf-indirect-number object) (pdf-indirect-packed-in object)))
         (append
-         (list (format nil "Go to offset ~a: the object begins ~s." (offset-words (pobj-at object))
-                       (text-words octets (pobj-at object) (min (length octets) (+ (pobj-at object) 24 )) 24)))
-         (when (pobj-stream-start object)
+         (list (format nil "Go to offset ~a: the object begins ~s." (offset-words (pdf-indirect-at object))
+                       (text-words octets (pdf-indirect-at object) (min (length octets) (+ (pdf-indirect-at object) 24 )) 24)))
+         (when (pdf-indirect-stream-start object)
            (list (format nil "Its stream's data runs from ~a to ~a, ~:d octets (its dictionary gives /Length ~a); its filters: ~a."
-                         (offset-words (pobj-stream-start object)) (offset-words (pobj-stream-end object))
-                         (- (pobj-stream-end object) (pobj-stream-start object))
-                         (let ((l (pobj-length object))) (if (ref-p l) (format nil "~d ~d R" (second l) (third l)) l))
+                         (offset-words (pdf-indirect-stream-start object)) (offset-words (pdf-indirect-stream-end object))
+                         (- (pdf-indirect-stream-end object) (pdf-indirect-stream-start object))
+                         (let ((l (pdf-indirect-length object))) (if (pdf-ref-p l) (format nil "~d ~d R" (second l) (third l)) l))
                          (filter-names object))
-                 (if (filters-of (pobj-value object))
+                 (if (pdf-stream-filters (pdf-indirect-value object))
                      (format nil "Undo the filters on those octets (for /FlateDecode, inflate them as zlib data) to have the decoded stream.")
                      "The data is not filtered: it is read as it stands.")))))))
 
@@ -83,17 +83,17 @@ the stream it names), in hex and as text."
 and the steps to find it, as two values."
   (let ((object (revision-object pdf revision number)))
     (cond ((null object) (values (list (format nil "Object ~d is not in revision ~d." number (1+ (revision-index revision)))) '()))
-          ((pobj-packed-in object)
-           (let ((stream (revision-object pdf revision (pobj-packed-in object))))
+          ((pdf-indirect-packed-in object)
+           (let ((stream (revision-object pdf revision (pdf-indirect-packed-in object))))
              (values (list (format nil "Object ~d ~d is kept in object stream ~d~@[ (at ~a)~], at offset ~a of its decoded octets."
-                                   number (pobj-generation object) (pobj-packed-in object)
-                                   (and stream (offset-words (pobj-at stream))) (offset-words (pobj-at object))))
+                                   number (pdf-indirect-generation object) (pdf-indirect-packed-in object)
+                                   (and stream (offset-words (pdf-indirect-at stream))) (offset-words (pdf-indirect-at object))))
                      (append (and stream (stream-steps pdf stream))
                              (list (format nil "In the decoded object stream, go to offset ~a: object ~d's value begins there."
-                                           (offset-words (pobj-at object)) number))))))
-          (t (let ((written (revision-of-offset pdf (pobj-at object))))
+                                           (offset-words (pdf-indirect-at object)) number))))))
+          (t (let ((written (revision-of-offset pdf (pdf-indirect-at object))))
                (values (list (format nil "Object ~d ~d begins at ~a and ends at ~a~@[, written in revision ~d~]."
-                                     number (pobj-generation object) (offset-words (pobj-at object)) (offset-words (pobj-end object))
+                                     number (pdf-indirect-generation object) (offset-words (pdf-indirect-at object)) (offset-words (pdf-indirect-end object))
                                      (and written (1+ (revision-index written)))))
                        (stream-steps pdf object)))))))
 
@@ -104,15 +104,15 @@ the steps to find them, as two values. NIL when it has no such entry."
   (let ((object (revision-object pdf revision number)))
     (when object
       (multiple-value-bind (octets start end label)
-          (if (pobj-packed-in object)
-              (let ((stream (revision-object pdf revision (pobj-packed-in object))))
+          (if (pdf-indirect-packed-in object)
+              (let ((stream (revision-object pdf revision (pdf-indirect-packed-in object))))
                 (multiple-value-bind (pairs data) (and stream (packed-objects pdf stream))
                   (declare (ignore pairs))
-                  (values data (pobj-at object) (min (length (or data #())) (pobj-end object))
-                          (format nil "the decoded object stream ~d" (pobj-packed-in object)))))
-              (values (pdf-octets pdf) (pobj-at object) (or (pobj-stream-start object) (pobj-end object)) nil))
+                  (values data (pdf-indirect-at object) (min (length (or data #())) (pdf-indirect-end object))
+                          (format nil "the decoded object stream ~d" (pdf-indirect-packed-in object)))))
+              (values (pdf-octets pdf) (pdf-indirect-at object) (or (pdf-indirect-stream-start object) (pdf-indirect-end object)) nil))
         (when octets
-          (let ((at (search (bytes key) octets :start2 start :end2 end)))
+          (let ((at (search (string-octets key) octets :start2 start :end2 end)))
             (when (and at (< (+ at (length key)) (length octets))
                        (pdf-delimiter-p (aref octets (+ at (length key)))))
               (let ((value-end (nth-value 1 (pdf-object-at octets (+ at (length key))))))
@@ -159,9 +159,9 @@ current file), the last save being the file as it is now."
 
 (defun info-of (pdf revision)
   "REVISION's document information, as two values: its dictionary (or NIL) and its object number."
-  (let* ((value (dget (revision-trailer revision) "/Info"))
+  (let* ((value (pdf-get (revision-trailer revision) "/Info"))
          (info (deref pdf revision value)))
-    (values (and (dict-p info) info) (ref-number value))))
+    (values (and (pdf-dictionary-p info) info) (pdf-ref-p value))))
 
 (defun info-text (pdf revision key)
   "The text of KEY in REVISION's document information, or NIL."
@@ -170,15 +170,11 @@ current file), the last save being the file as it is now."
 
 ;;; XMP
 
-(defun local-name (name)
-  "NAME, an XML name, without its prefix."
-  (let ((colon (position #\: name))) (if colon (subseq name (1+ colon)) name)))
-
 (defun xmp-of (pdf revision)
   "REVISION's XMP metadata, as three values: its fields (each (NAME . VALUE)),
 its tree, and its object number; NIL when it has none or it cannot be read."
-  (let* ((value (dget (catalogue pdf revision) "/Metadata"))
-         (object (and (ref-p value) (revision-object pdf revision (second value)))))
+  (let* ((value (pdf-get (catalogue pdf revision) "/Metadata"))
+         (object (and (pdf-ref-p value) (revision-object pdf revision (second value)))))
     (when object
       (multiple-value-bind (data why) (stream-data pdf object :limit (* 16 1024 1024))
         (when (and data (null why))
@@ -188,7 +184,7 @@ its tree, and its object number; NIL when it has none or it cannot be read."
 
 (defun xmp-get (fields local)
   "The value of the XMP field whose name without its prefix is LOCAL among FIELDS, or NIL."
-  (let ((pair (find-if (lambda (f) (string= (local-name (car f)) local)) fields)))
+  (let ((pair (find-if (lambda (f) (string= (xml-unprefixed (car f)) local)) fields)))
     (and pair (stringp (cdr pair)) (plusp (length (cdr pair))) (cdr pair))))
 
 (defun xmp-history (tree)
@@ -199,7 +195,7 @@ of (LOCAL-NAME . VALUE): action, when, softwareAgent, instanceID, changed."
              (text (node) (string-trim '(#\Space #\Newline #\Tab #\Return) (format nil "~{~a~}" (remove-if-not #'stringp (xml-children node)))))
              (item (li)
                (let ((fields (loop for (name . value) in (second li)
-                                   unless (search "rdf:" name) collect (cons (local-name name) value))))
+                                   unless (search "rdf:" name) collect (cons (xml-unprefixed name) value))))
                  (dolist (child (elements li))
                    (if (string= (xml-local-name child) "Description")
                        (setf fields (append fields (cdr (item child))))
@@ -348,7 +344,7 @@ object it adds or changes, or a new page) set beside what it was before."
                            :rule "A page drawing with an object a later save adds or changes is compared with the same page in the save before: its text line by line, its drawing item by item."
                            :revision (revision-index revision) :page p
                            :details (append (loop for (kind line) in (page-change-text change) repeat 12
-                                                  collect (format nil "~:[-~;+~] ~a" (eq kind :added) (shorten line 100)))
+                                                  collect (format nil "~:[-~;+~] ~a" (eq kind :added) (shorten-string line 100 :one-line t)))
                                             (loop for m in (page-change-added change) repeat 6 collect (format nil "drawn now: ~a" (mark-words page m)))
                                             (loop for m in (page-change-removed change) repeat 6 collect (format nil "drawn before: ~a" (mark-words (or (page-change-old change) page) m))))
                            :evidence (loop for m in (page-change-added change) repeat 4
@@ -380,7 +376,7 @@ object it adds or changes, or a new page) set beside what it was before."
                (maphash (lambda (number entry)
                           (when (and (plusp number) (eq (entry-kind entry) :used))
                             (let ((object (object-at-offset pdf (entry-place entry))))
-                              (unless (and object (eql (pobj-number object) number) (eql (pobj-generation object) (entry-generation entry)))
+                              (unless (and object (eql (pdf-indirect-number object) number) (eql (pdf-indirect-generation object) (entry-generation entry)))
                                 (push (list number entry object (found-object pdf number (revision-end revision))) wrong)))))
                         (revision-entries revision))
                (setf wrong (sort wrong #'< :key #'first))
@@ -392,8 +388,8 @@ object it adds or changes, or a new page) set beside what it was before."
                               :evidence (loop for (number entry object real) in wrong repeat 20
                                               append (cons (format nil "Object ~d ~d is listed at ~a, where ~:[no object begins~;~:*object ~a begins~]~@[; object ~d is really at ~a~]."
                                                                    number (entry-generation entry) (offset-words (entry-place entry))
-                                                                   (and object (format nil "~d ~d" (pobj-number object) (pobj-generation object)))
-                                                                   (and real number) (and real (offset-words (pobj-at real))))
+                                                                   (and object (format nil "~d ~d" (pdf-indirect-number object) (pdf-indirect-generation object)))
+                                                                   (and real number) (and real (offset-words (pdf-indirect-at real))))
                                                            (octets-evidence "  the octets there" (pdf-octets pdf) (entry-place entry)
                                                                             (min (length (pdf-octets pdf)) (+ (entry-place entry) 16)))))
                               :steps (list (format nil "Read the cross-reference section at ~a; for each object named here go to the offset its entry gives."
@@ -434,8 +430,8 @@ object it adds or changes, or a new page) set beside what it was before."
 
 (defun structural-p (pdf revision number)
   "True when the object NUMBER of REVISION is part of how the file is put together (an object or cross-reference stream, a linearisation dictionary)."
-  (let* ((object (revision-object pdf revision number)) (value (and object (pobj-value object))))
-    (or (null object) (name-p (dget value "/Type") "/ObjStm") (name-p (dget value "/Type") "/XRef") (dget value "/Linearized"))))
+  (let* ((object (revision-object pdf revision number)) (value (and object (pdf-indirect-value object))))
+    (or (null object) (name-p (pdf-get value "/Type") "/ObjStm") (name-p (pdf-get value "/Type") "/XRef") (pdf-get value "/Linearized"))))
 
 (defun check-leftovers (pdf)
   "Objects the document no longer uses, and objects written that no cross-reference section lists."
@@ -447,8 +443,8 @@ object it adds or changes, or a new page) set beside what it was before."
                          do (maphash (lambda (n e) (when (eq (entry-kind e) :used) (setf (gethash (cons n (entry-place e)) h) t))) (revision-entries r)))
                    h))
          (unlisted (unless (some (lambda (r) (eq (revision-xref-kind r) :none)) (pdf-revisions pdf))
-                     (remove-if (lambda (o) (or (gethash (cons (pobj-number o) (pobj-at o)) listed)
-                                                (name-p (dget (pobj-value o) "/Type") "/XRef") (dget (pobj-value o) "/Linearized")))
+                     (remove-if (lambda (o) (or (gethash (cons (pdf-indirect-number o) (pdf-indirect-at o)) listed)
+                                                (name-p (pdf-get (pdf-indirect-value o) "/Type") "/XRef") (pdf-get (pdf-indirect-value o) "/Linearized")))
                                 (coerce (pdf-found pdf) 'list))))
          (out '()))
     (when unused
@@ -468,9 +464,9 @@ object it adds or changes, or a new page) set beside what it was before."
       (push (found :look (format nil "~d object~:p ~:*~[~;is~:;are~] written in the file but listed by no cross-reference section: hidden from every reader, or left by an edit."
                                  (length unlisted))
                    :rule "Each object written in a save is listed in that save's cross-reference section."
-                   :revision (revision-index last) :objects (mapcar #'pobj-number unlisted)
+                   :revision (revision-index last) :objects (mapcar #'pdf-indirect-number unlisted)
                    :evidence (loop for o in unlisted repeat 20
-                                   collect (format nil "object ~d ~d at ~a" (pobj-number o) (pobj-generation o) (offset-words (pobj-at o))))
+                                   collect (format nil "object ~d ~d at ~a" (pdf-indirect-number o) (pdf-indirect-generation o) (offset-words (pdf-indirect-at o))))
                    :steps (list "Go to each offset: an object begins there that no cross-reference entry names."))
             out))
     out))
@@ -480,23 +476,23 @@ object it adds or changes, or a new page) set beside what it was before."
   (loop for revision across (pdf-revisions pdf)
         append (let ((seen (make-hash-table)) (twice '()))
                  (loop for o across (pdf-found pdf)
-                       when (and (<= (revision-start revision) (pobj-at o)) (< (pobj-at o) (revision-end revision)))
-                         do (let ((earlier (gethash (pobj-number o) seen)))
-                              (if earlier (push (list (pobj-number o) earlier o) twice) (setf (gethash (pobj-number o) seen) o))))
+                       when (and (<= (revision-start revision) (pdf-indirect-at o)) (< (pdf-indirect-at o) (revision-end revision)))
+                         do (let ((earlier (gethash (pdf-indirect-number o) seen)))
+                              (if earlier (push (list (pdf-indirect-number o) earlier o) twice) (setf (gethash (pdf-indirect-number o) seen) o))))
                  (when twice
                    (list (found :look (format nil "~@(~a~) writes ~d object~:p twice: the later copy is the one shown; written by hand or by a careless program."
                                               (revision-name revision) (length twice))
                                 :rule "One save writes each object once."
                                 :revision (revision-index revision) :objects (mapcar #'first (reverse twice))
                                 :evidence (loop for (n a b) in (reverse twice) repeat 20
-                                                collect (format nil "object ~d at ~a and again at ~a" n (offset-words (pobj-at a)) (offset-words (pobj-at b))))))))))
+                                                collect (format nil "object ~d at ~a and again at ~a" n (offset-words (pdf-indirect-at a)) (offset-words (pdf-indirect-at b))))))))))
 
 (defun check-ends (pdf)
   "Data after the last save, and before the PDF begins."
   (let* ((octets (pdf-octets pdf)) (last (last-revision pdf)) (end (revision-end last)) (out '())
-         (rest-count (count-if-not #'white-p octets :start end)))
+         (rest-count (count-if-not #'pdf-white-p octets :start end)))
     (when (plusp rest-count)
-      (let ((suspect (some (lambda (word) (search (bytes word) octets :start2 end)) '("obj" "%PDF" "xref" "stream" "trailer"))))
+      (let ((suspect (some (lambda (word) (search (string-octets word) octets :start2 end)) '("obj" "%PDF" "xref" "stream" "trailer"))))
         (push (found (if (or suspect (>= rest-count 64)) :strong :look)
                      (format nil "~:d octet~:p follow~:[s~;~] the last %%EOF~:[~;, among them PDF objects or another file~]: data hidden after the end, or a save cut short."
                              (- (length octets) end) (/= (- (length octets) end) 1) suspect)
@@ -532,13 +528,13 @@ object it adds or changes, or a new page) set beside what it was before."
         (push (found :record (format nil "~@(~a~) has both a cross-reference table and a stream (a hybrid file): older readers see only part of it." (revision-name r))
                      :rule "A trailer with /XRefStm names a cross-reference stream beside the table."
                      :revision (revision-index r)
-                     :evidence (list (format nil "/XRefStm ~a in the trailer at ~a" (dget (revision-trailer r) "/XRefStm") (offset-words (or (revision-trailer-at r) 0)))))
+                     :evidence (list (format nil "/XRefStm ~a in the trailer at ~a" (pdf-get (revision-trailer r) "/XRefStm") (offset-words (or (revision-trailer-at r) 0)))))
               out)))
     (when (and (revision-linearised first) (rest revisions))
       (push (found :look "The file was prepared for fast web viewing, then changed: the later saves were not made by the program that made it."
                    :rule "A linearised file is written whole by one program; a save appended after it undoes the linearisation."
                    :revision 1
-                   :evidence (list (format nil "the first object, at ~a, says /Linearized" (offset-words (pobj-at (aref (pdf-found pdf) 0))))))
+                   :evidence (list (format nil "the first object, at ~a, says /Linearized" (offset-words (pdf-indirect-at (aref (pdf-found pdf) 0))))))
             out))
     out))
 
@@ -547,8 +543,8 @@ object it adds or changes, or a new page) set beside what it was before."
   (let* ((octets (pdf-octets pdf)) (n (length octets)) (found (pdf-found pdf)) (comments '()) (k 0))
     (loop for at = (position 37 octets) then (position 37 octets :start (1+ at))
           while (and at (< (length comments) 50))
-          do (loop while (and (< k (length found)) (<= (pobj-end (aref found k)) at)) do (incf k))
-             (unless (or (and (< k (length found)) (<= (pobj-at (aref found k)) at))
+          do (loop while (and (< k (length found)) (<= (pdf-indirect-end (aref found k)) at)) do (incf k))
+             (unless (or (and (< k (length found)) (<= (pdf-indirect-at (aref found k)) at))
                          (not (or (zerop at) (member (aref octets (1- at)) '(10 13)))))
                (let* ((end (or (position-if (lambda (c) (member c '(10 13))) octets :start at) n))
                       (text (octets-latin-1 octets :start at :end (min end (+ at 200)))))
@@ -580,20 +576,20 @@ object it adds or changes, or a new page) set beside what it was before."
   "Streams whose /Length disagrees with where endstream is."
   (let ((wrong '()) (last (last-revision pdf)))
     (loop for o across (pdf-found pdf)
-          when (pobj-stream-start o)
-            do (let ((length (deref pdf last (pobj-length o))))
-                 (when (and (integerp length) (/= length (- (pobj-stream-end o) (pobj-stream-start o))))
+          when (pdf-indirect-stream-start o)
+            do (let ((length (deref pdf last (pdf-indirect-length o))))
+                 (when (and (integerp length) (/= length (- (pdf-indirect-stream-end o) (pdf-indirect-stream-start o))))
                    (push (list o length) wrong))))
     (when wrong
       (setf wrong (nreverse wrong))
       (list (found :look (format nil "~d stream~:p ~:*~[~;has~:;have~] a /Length that disagrees with where endstream is: changed by hand or by a program that did not write the length again."
                                  (length wrong))
                    :rule "A stream's /Length gives how many octets lie between stream and endstream."
-                   :revision (revision-index last) :objects (mapcar (lambda (w) (pobj-number (first w))) wrong)
+                   :revision (revision-index last) :objects (mapcar (lambda (w) (pdf-indirect-number (first w))) wrong)
                    :evidence (loop for (o length) in wrong repeat 20
                                    collect (format nil "object ~d at ~a: /Length ~:d, but endstream comes after ~:d octets (data from ~a)"
-                                                   (pobj-number o) (offset-words (pobj-at o)) length (- (pobj-stream-end o) (pobj-stream-start o))
-                                                   (offset-words (pobj-stream-start o)))))))))
+                                                   (pdf-indirect-number o) (offset-words (pdf-indirect-at o)) length (- (pdf-indirect-stream-end o) (pdf-indirect-stream-start o))
+                                                   (offset-words (pdf-indirect-stream-start o)))))))))
 
 ;;; What the file says of itself
 
@@ -606,7 +602,7 @@ object it adds or changes, or a new page) set beside what it was before."
                (xmp-evidence (local)
                  (let ((object (and xmp-number (revision-object pdf last xmp-number))))
                    (multiple-value-bind (data) (and object (stream-data pdf object))
-                     (let ((at (and data (search (bytes local) data))))
+                     (let ((at (and data (search (string-octets local) data))))
                        (and at (append (object-evidence pdf last xmp-number)
                                        (octets-evidence (format nil "~a in the XMP" local) data (max 0 (- at 8)) (min (length data) (+ at 80))
                                                         :decoded (format nil "the decoded stream of object ~d" xmp-number)))))))))
@@ -667,7 +663,7 @@ object it adds or changes, or a new page) set beside what it was before."
                              :evidence (xmp-evidence "History"))
                       out))))
           (let ((document (xmp-get fields "DocumentID")) (original (xmp-get fields "OriginalDocumentID"))
-                (derived (find-if (lambda (f) (string= (local-name (car f)) "DerivedFrom")) fields)))
+                (derived (find-if (lambda (f) (string= (xml-unprefixed (car f)) "DerivedFrom")) fields)))
             (when (and document original (string/= document original))
               (push (found :look (format nil "The XMP metadata says the document was made from another one (original ~a, now ~a)." original document)
                            :rule "xmpMM:OriginalDocumentID names the document a file was first made as; a different xmpMM:DocumentID means it became another."
@@ -685,7 +681,7 @@ object it adds or changes, or a new page) set beside what it was before."
               (when (eq (third tool) :editor)
                 (push (found :look (format nil "~a names ~a, ~a: the file passed through a program that edits PDFs." (car place) (second tool) (fourth tool))
                              :rule "The programs a file names in its producer and creator, as *pdf-tools* lists them, tell how it was made and changed."
-                             :revision (revision-index last) :evidence (if (char= #\/ (char (car place) 0)) (info-evidence (car place)) (xmp-evidence (local-name (subseq (car place) 4)))))
+                             :revision (revision-index last) :evidence (if (char= #\/ (char (car place) 0)) (info-evidence (car place)) (xmp-evidence (xml-unprefixed (subseq (car place) 4)))))
                       out))))
           (let ((producer (info-text pdf last "/Producer")) (creator (info-text pdf last "/Creator")))
             (when (and producer creator (search "acrobat" (string-downcase producer))
@@ -723,7 +719,7 @@ object it adds or changes, or a new page) set beside what it was before."
                               :rule "A save that drops the catalogue's /Metadata has removed what the file said of itself."
                               :revision (revision-index r))
                        out))
-               (let ((a (first (listed (dget (revision-trailer before) "/ID")))) (b (first (listed (dget (revision-trailer r) "/ID")))))
+               (let ((a (first (pdf-array-items (pdf-get (revision-trailer before) "/ID")))) (b (first (pdf-array-items (pdf-get (revision-trailer r) "/ID")))))
                  (when (and (stringp a) (stringp b) (string/= a b))
                    (push (found :look (format nil "~@(~a~) gives the file another first ID than the save before: another document's ID, or one rewritten." (revision-name r))
                                 :rule "The first part of a file's /ID stays the same in every save; only the second changes."
@@ -731,7 +727,7 @@ object it adds or changes, or a new page) set beside what it was before."
                                 :evidence (list (format nil "before: <~a>; now: <~a>" (id-hex a) (id-hex b))
                                                 (format nil "trailer of ~a at ~a" (revision-name r) (offset-words (or (revision-trailer-at r) 0)))))
                          out)))))
-    (let ((id (listed (dget (revision-trailer last) "/ID"))))
+    (let ((id (pdf-array-items (pdf-get (revision-trailer last) "/ID"))))
       (when (and (= (length (pdf-revisions pdf)) 1) (= (length id) 2) (stringp (first id)) (stringp (second id)) (string/= (first id) (second id)))
         (push (found :record "The two parts of the file's /ID differ: it was saved again after it was first made, or its program writes them so."
                      :rule "A program writes the two parts of /ID alike when it makes a file, and changes the second each time it saves it."
@@ -742,7 +738,7 @@ object it adds or changes, or a new page) set beside what it was before."
 
 (defun id-hex (text)
   "TEXT, a part of a file's /ID as read, in hex."
-  (format nil "~{~2,'0X~}" (map 'list (lambda (c) (logand 255 (char-code c))) text)))
+  (octets-hex (map 'octets (lambda (c) (logand 255 (char-code c))) text) :upper-case t))
 
 ;;; What the pages draw
 
@@ -807,7 +803,7 @@ what shows, a page that is one picture with text over it."
                        (add (if white :strong :look)
                             (format nil "Text on page ~d is covered by a ~a shape drawn over it~:[~;, added in a later save~]: ~s~:[~; (blacked out: the text is still in the file)~]."
                                     p (colour-words (mark-colour box)) (later-source-p pdf revision box)
-                                    (shorten (format nil "~{~a~^ ~}" (mapcar #'mark-text covered)) 120) black)
+                                    (shorten-string (format nil "~{~a~^ ~}" (mapcar #'mark-text covered)) 120 :one-line t) black)
                             "A filled shape drawn after text, over it, hides that text from the eye but not from the file."
                             (cons box covered))))))
       ;; invisible text
@@ -818,22 +814,22 @@ what shows, a page that is one picture with text over it."
                    "Invisible text (render mode 3) over a picture of the whole page is how scanned pages are made searchable."
                    (list (first invisible)))
               (add (if (some (lambda (m) (later-source-p pdf revision m)) invisible) :strong :look)
-                   (format nil "Page ~d holds invisible text: ~s." p (shorten (format nil "~{~a~^ ~}" (mapcar #'mark-text invisible)) 120))
+                   (format nil "Page ~d holds invisible text: ~s." p (shorten-string (format nil "~{~a~^ ~}" (mapcar #'mark-text invisible)) 120 :one-line t))
                    "Text in render mode 3 or 7 is never drawn: found by searching and copying, never seen."
                    invisible))))
       ;; text clipped away, outside the page, in a layer that is off
       (let ((clipped (remove-if-not #'mark-clipped texts)))
         (when clipped
-          (add :look (format nil "Text on page ~d lies outside what the page clips to, so it is never seen: ~s." p (shorten (format nil "~{~a~^ ~}" (mapcar #'mark-text clipped)) 120))
+          (add :look (format nil "Text on page ~d lies outside what the page clips to, so it is never seen: ~s." p (shorten-string (format nil "~{~a~^ ~}" (mapcar #'mark-text clipped)) 120 :one-line t))
                "Text drawn outside the clipping path is cut away." clipped)))
       (let* ((box (or (page-crop page) (page-media page)))
              (outside (remove-if (lambda (m) (inside-box-p box (/ (+ (mark-x0 m) (mark-x1 m)) 2) (/ (+ (mark-y0 m) (mark-y1 m)) 2) 1)) texts)))
         (when outside
-          (add :look (format nil "Text on page ~d lies outside the page: ~s." p (shorten (format nil "~{~a~^ ~}" (mapcar #'mark-text outside)) 120))
+          (add :look (format nil "Text on page ~d lies outside the page: ~s." p (shorten-string (format nil "~{~a~^ ~}" (mapcar #'mark-text outside)) 120 :one-line t))
                "Text drawn outside the page's crop box (else its media box) is never shown." outside)))
       (let ((hidden (remove-if-not #'mark-hidden texts)))
         (when hidden
-          (add :look (format nil "Text on page ~d is in a layer that is off: ~s." p (shorten (format nil "~{~a~^ ~}" (mapcar #'mark-text hidden)) 120))
+          (add :look (format nil "Text on page ~d is in a layer that is off: ~s." p (shorten-string (format nil "~{~a~^ ~}" (mapcar #'mark-text hidden)) 120 :one-line t))
                "Content tagged with an optional content group that is off as the file opens is not shown." hidden)))
       ;; white and tiny text
       (let ((white (remove-if-not (lambda (m) (and (not (member (mark-mode m) '(3 7))) (white-p* (mark-colour m))
@@ -843,11 +839,11 @@ what shows, a page that is one picture with text over it."
                                   texts)))
         (when white
           (add (if (some (lambda (m) (later-source-p pdf revision m)) white) :strong :look)
-               (format nil "Page ~d holds white text on a white page, unseen: ~s." p (shorten (format nil "~{~a~^ ~}" (mapcar #'mark-text white)) 120))
+               (format nil "Page ~d holds white text on a white page, unseen: ~s." p (shorten-string (format nil "~{~a~^ ~}" (mapcar #'mark-text white)) 120 :one-line t))
                "Text the colour of the page beneath it cannot be seen." white)))
       (let ((tiny (remove-if-not (lambda (m) (< 0 (mark-size m) 1)) texts)))
         (when tiny
-          (add :look (format nil "Page ~d holds text too small to read (under 1 pt): ~s." p (shorten (format nil "~{~a~^ ~}" (mapcar #'mark-text tiny)) 120))
+          (add :look (format nil "Page ~d holds text too small to read (under 1 pt): ~s." p (shorten-string (format nil "~{~a~^ ~}" (mapcar #'mark-text tiny)) 120 :one-line t))
                "Text smaller than a point cannot be read on the page." tiny)))
       ;; content streams
       (when (> (length (page-contents page)) 1)
@@ -896,7 +892,7 @@ what shows, a page that is one picture with text over it."
                                  (>= (count-if #'digit-char-p text) (* 0.5 (length (remove #\Space text))))
                                  (<= (gethash (font-family (mark-font m)) font-characters 0) 20))
                         (push (list m main) retyped)))))))))
-        (flet ((line-text (line) (shorten (format nil "~{~a~^ ~}" (mapcar #'mark-text line)) 100)))
+        (flet ((line-text (line) (shorten-string (format nil "~{~a~^ ~}" (mapcar #'mark-text line)) 100 :one-line t)))
           (when one-by-one
             (add :look (format nil "~:d line~:p on page ~d ~:*~:*~[~;is~:;are~] drawn a character at a time, unlike the rest of the page: retyped, or added by another program."
                                (length one-by-one) p)
@@ -925,14 +921,14 @@ what shows, a page that is one picture with text over it."
         (dolist (group groups)
           (let ((shown (format nil "~{~a~}" (mapcar #'mark-text (reverse (cdr group))))))
             (unless (string-equal (remove #\Space shown) (remove #\Space (car group)))
-              (add :look (format nil "On page ~d the text shown, ~s, is tagged as standing for ~s." p (shorten shown 80) (shorten (car group) 80))
+              (add :look (format nil "On page ~d the text shown, ~s, is tagged as standing for ~s." p (shorten-string shown 80 :one-line t) (shorten-string (car group) 80 :one-line t))
                    "A tag's /ActualText or /Alt says what the text it marks stands for; read aloud and copied, it replaces what shows."
                    (reverse (cdr group)))))))
       ;; a page that is one picture, with text over it
       (when scan
         (let ((visible (remove-if (lambda (m) (or (member (mark-mode m) '(3 7)) (< (mark-order m) (mark-order scan)))) texts)))
           (when visible
-            (add :look (format nil "Page ~d is one picture with text drawn over it: ~s; typed onto a scan." p (shorten (format nil "~{~a~^ ~}" (mapcar #'mark-text visible)) 120))
+            (add :look (format nil "Page ~d is one picture with text drawn over it: ~s; typed onto a scan." p (shorten-string (format nil "~{~a~^ ~}" (mapcar #'mark-text visible)) 120 :one-line t))
                  "A page that is a picture of a whole page holds no text of its own; visible text over it was laid on afterwards."
                  (cons scan visible))))))
     out))
@@ -941,10 +937,10 @@ what shows, a page that is one picture with text over it."
   "One face in several subsets, and one face both embedded and not."
   (let ((faces (make-hash-table :test 'equal)) (out '()))
     (dolist (page (pages-of pdf revision))
-      (loop for (name . value) in (let ((f (dref pdf revision (page-resources page) "/Font"))) (and (dict-p f) f))
+      (loop for (name . value) in (let ((f (dref pdf revision (page-resources page) "/Font"))) (and (pdf-dictionary-p f) f))
             do (let ((font (font-of pdf revision value)))
                  (when (plusp (length (font-base font)))
-                   (push (list font (1+ (page-index page)) name (ref-number value)) (gethash (font-base font) faces))))))
+                   (push (list font (1+ (page-index page)) name (pdf-ref-p value)) (gethash (font-base font) faces))))))
     (dolist (base (sort (loop for k being the hash-keys of faces collect k) #'string<))
       (let* ((uses (reverse (gethash base faces)))
              (subsets (remove-duplicates (remove nil (mapcar (lambda (u) (font-subset (first u))) uses)) :test #'string=))
@@ -983,10 +979,10 @@ what shows, a page that is one picture with text over it."
               do (push (list m page) images)))
     (setf images (nreverse (remove-duplicates images :key (lambda (i) (mark-object (first i))) :from-end t)))
     (flet ((props (m) (let ((d (mark-actual m)))
-                        (list (format nil "~{~a~^ ~}" (mapcar #'car (filters-of d)))
-                              (let ((cs (dget d "/ColorSpace"))) (cond ((stringp cs) cs) ((ref-p cs) (let ((v (deref pdf revision cs))) (if (stringp v) v (princ-to-string (first (listed v)))))) (t (princ-to-string (first (listed cs))))))
-                              (dget d "/BitsPerComponent"))))
-           (dpi (m) (let ((w (dget (mark-actual m) "/Width")) (placed (- (mark-x1 m) (mark-x0 m))))
+                        (list (format nil "~{~a~^ ~}" (mapcar #'car (pdf-stream-filters d)))
+                              (let ((cs (pdf-get d "/ColorSpace"))) (cond ((stringp cs) cs) ((pdf-ref-p cs) (let ((v (deref pdf revision cs))) (if (stringp v) v (princ-to-string (first (pdf-array-items v)))))) (t (princ-to-string (first (pdf-array-items cs))))))
+                              (pdf-get d "/BitsPerComponent"))))
+           (dpi (m) (let ((w (pdf-get (mark-actual m) "/Width")) (placed (- (mark-x1 m) (mark-x0 m))))
                       (and (realp w) (> placed 1) (/ w (/ placed 72))))))
       (when (>= (length images) 3)
         (loop for k below 3 for what in '("compression" "colour space" "bit depth")
@@ -1024,7 +1020,7 @@ what shows, a page that is one picture with text over it."
                            :revision (revision-index written) :page (1+ (page-index page)) :objects (list (mark-object m))
                            :evidence (nth-value 0 (object-evidence pdf revision (mark-object m))))
                     out)))
-          (let ((filters (mapcar #'car (filters-of (mark-actual m)))))
+          (let ((filters (mapcar #'car (pdf-stream-filters (mark-actual m)))))
             (when (and filters (member (car (last filters)) '("/DCTDecode" "/DCT") :test #'equal))
               (let* ((object (revision-object pdf revision (mark-object m)))
                      (data (and object (if (rest filters) (stream-data pdf object) (raw-stream pdf object))))
@@ -1053,13 +1049,13 @@ what shows, a page that is one picture with text over it."
   (let ((out '()))
     (dolist (page (pages-of pdf revision))
       (dolist (value (page-annots page))
-        (let* ((annot (deref pdf revision value)) (number (ref-number value))
-               (subtype (dget annot "/Subtype")) (flags (let ((f (dget annot "/F"))) (if (integerp f) f 0)))
+        (let* ((annot (deref pdf revision value)) (number (pdf-ref-p value))
+               (subtype (pdf-get annot "/Subtype")) (flags (let ((f (pdf-get annot "/F"))) (if (integerp f) f 0)))
                (p (1+ (page-index page)))
                (written (and number (written-in pdf revision number)))
                (later (and written (plusp (revision-index written))))
                (evidence (and number (nth-value 0 (object-evidence pdf revision number))))
-               (contents (let ((c (dref pdf revision annot "/Contents"))) (and (stringp c) (shorten c 80)))))
+               (contents (let ((c (dref pdf revision annot "/Contents"))) (and (stringp c) (shorten-string c 80 :one-line t)))))
           (when (and (stringp subtype) (member subtype *content-like-annotations* :test #'string=))
             (push (found (cond ((and later (member subtype '("/FreeText" "/Stamp" "/Ink" "/Square" "/Redact") :test #'string=)) :strong)
                                (later :look) (t :record))
@@ -1085,7 +1081,7 @@ what shows, a page that is one picture with text over it."
 (defun field-value (pdf revision dict)
   "The value of the form field DICT, as text."
   (let ((v (dref pdf revision dict "/V")))
-    (cond ((null v) nil) ((stringp v) v) ((dict-p v) (if (dget v "/ByteRange") "(a signature)" "(a dictionary)")) (t (princ-to-string v)))))
+    (cond ((null v) nil) ((stringp v) v) ((pdf-dictionary-p v) (if (pdf-get v "/ByteRange") "(a signature)" "(a dictionary)")) (t (princ-to-string v)))))
 
 (defun check-forms (pdf)
   "Form fields whose values changed from one save to the next, and XFA forms."
@@ -1106,7 +1102,7 @@ what shows, a page that is one picture with text over it."
                                       :evidence (and number (append (key-evidence pdf r number "/V") (key-evidence pdf before (second then) "/V"))))
                                out)))))))
              (let ((form (dref pdf r (catalogue pdf r) "/AcroForm")))
-               (when (and (dget form "/XFA") (= (revision-index r) (1- (length (pdf-revisions pdf)))))
+               (when (and (pdf-get form "/XFA") (= (revision-index r) (1- (length (pdf-revisions pdf)))))
                  (push (found :look "The form is an XFA form: what it shows depends on the program reading it, and can differ from the PDF's own pages."
                               :rule "An /XFA entry in the form holds an XML form that some readers draw in place of the pages."
                               :revision (revision-index r))
@@ -1143,9 +1139,9 @@ what shows, a page that is one picture with text over it."
 dictionary with a /ByteRange among its objects."
   (let ((found '()))
     (dolist (n (live-numbers pdf revision))
-      (let* ((object (revision-object pdf revision n)) (value (and object (pobj-value object))))
-        (when (and (dict-p value) (listp (dget value "/ByteRange")) (dget value "/ByteRange"))
-          (push (list n value (let ((field (find n (form-fields pdf revision) :key (lambda (f) (ref-number (dget (third f) "/V"))))))
+      (let* ((object (revision-object pdf revision n)) (value (and object (pdf-indirect-value object))))
+        (when (and (pdf-dictionary-p value) (listp (pdf-get value "/ByteRange")) (pdf-get value "/ByteRange"))
+          (push (list n value (let ((field (find n (form-fields pdf revision) :key (lambda (f) (pdf-ref-p (pdf-get (third f) "/V"))))))
                                 (and field (first field))))
                 found))))
     (nreverse found)))
@@ -1155,16 +1151,16 @@ dictionary with a /ByteRange among its objects."
 :form, :signature, :security (the signatures' validation data) or :content
 \(anything else, which changes what the document shows)."
   (let* ((new (deref pdf after (list :ref number 0))) (old (deref pdf before (list :ref number 0)))
-         (type (dget new "/Type")) (subtype (dget new "/Subtype")))
+         (type (pdf-get new "/Type")) (subtype (pdf-get new "/Subtype")))
     (flet ((without (dict keys) (remove-if (lambda (p) (member (car p) keys :test #'string=)) dict)))
-      (cond ((or (name-p type "/Sig") (name-p type "/DocTimeStamp") (dget new "/ByteRange")) :signature)
-            ((or (name-p type "/DSS") (dget new "/VRI") (dget new "/Certs") (dget new "/OCSPs") (dget new "/CRLs")) :security)
-            ((or (name-p type "/Annot") (and (stringp subtype) (dget new "/Rect") (not (dget new "/FT")))) :annotation)
-            ((or (dget new "/FT") (dget new "/Fields") (and (dget new "/T") (dget new "/Kids"))) :form)
-            ((and (dict-p old) (dict-p new) (name-p type "/Page")
+      (cond ((or (name-p type "/Sig") (name-p type "/DocTimeStamp") (pdf-get new "/ByteRange")) :signature)
+            ((or (name-p type "/DSS") (pdf-get new "/VRI") (pdf-get new "/Certs") (pdf-get new "/OCSPs") (pdf-get new "/CRLs")) :security)
+            ((or (name-p type "/Annot") (and (stringp subtype) (pdf-get new "/Rect") (not (pdf-get new "/FT")))) :annotation)
+            ((or (pdf-get new "/FT") (pdf-get new "/Fields") (and (pdf-get new "/T") (pdf-get new "/Kids"))) :form)
+            ((and (pdf-dictionary-p old) (pdf-dictionary-p new) (name-p type "/Page")
                   (equal (without old '("/Annots")) (without new '("/Annots"))))
              :annotation)
-            ((and (dict-p old) (dict-p new) (name-p type "/Catalog")
+            ((and (pdf-dictionary-p old) (pdf-dictionary-p new) (name-p type "/Catalog")
                   (equal (without old '("/AcroForm" "/DSS" "/Extensions" "/Perms")) (without new '("/AcroForm" "/DSS" "/Extensions" "/Perms"))))
              :form)
             ((let ((roles (roles-of pdf after))) (search "annotation" (or (gethash number roles) ""))) :annotation)
@@ -1176,23 +1172,23 @@ dictionary with a /ByteRange among its objects."
   (let* ((last (last-revision pdf)) (octets (pdf-octets pdf)) (out '()))
     (dolist (signature (signatures pdf last))
       (destructuring-bind (number dict field) signature
-        (let* ((range (dget dict "/ByteRange"))
+        (let* ((range (pdf-get dict "/ByteRange"))
                (written (written-in pdf last number))
                (signed-end (and (= (length range) 4) (every #'integerp range) (+ (third range) (fourth range))))
                (covered (and signed-end (find-if (lambda (r) (and (<= (+ (revision-eof r) 5) signed-end) (<= signed-end (revision-end r)))) (pdf-revisions pdf))))
-               (contents (dget dict "/Contents"))
+               (contents (pdf-get dict "/Contents"))
                (raw (and (stringp contents) (map 'octets (lambda (c) (logand 255 (char-code c))) contents)))
-               (reference (find-if (lambda (r) (name-p (dget (deref pdf last r) "/TransformMethod") "/DocMDP")) (listed (dref pdf last dict "/Reference"))))
-               (permission (or (let ((p (dget (dref pdf last (deref pdf last reference) "/TransformParams") "/P"))) (and (integerp p) p))
+               (reference (find-if (lambda (r) (name-p (pdf-get (deref pdf last r) "/TransformMethod") "/DocMDP")) (pdf-array-items (dref pdf last dict "/Reference"))))
+               (permission (or (let ((p (pdf-get (dref pdf last (deref pdf last reference) "/TransformParams") "/P"))) (and (integerp p) p))
                                (and reference 2)))
                (evidence (append (nth-value 0 (object-evidence pdf last number)) (key-evidence pdf last number "/ByteRange")))
                (steps (list (format nil "Read /ByteRange ~a in object ~d: the octets from ~a for ~a, and from ~a for ~a, are what was signed."
                                     range number (first range) (second range) (third range) (fourth range)))))
           (push (found :record (format nil "~:[An approval~;A certification~] signature~@[ in field ~s~] (object ~d)~@[ by ~a~]~@[, dated ~a~]~@[, for ~s~]~@[, ~a~]; it is not checked here, only what it covers."
                                        reference field number (and raw (signer-name raw))
-                                       (let ((m (dget dict "/M"))) (and (stringp m) (pdf-date-words m)))
-                                       (let ((reason (dget dict "/Reason"))) (and (stringp reason) reason))
-                                       (let ((s (dget dict "/SubFilter"))) (and (stringp s) (subseq s 1))))
+                                       (let ((m (pdf-get dict "/M"))) (and (stringp m) (pdf-date-words m)))
+                                       (let ((reason (pdf-get dict "/Reason"))) (and (stringp reason) reason))
+                                       (let ((s (pdf-get dict "/SubFilter"))) (and (stringp s) (subseq s 1))))
                        :rule "A signature dictionary says who signed, when, why and how, and /ByteRange names the octets it vouches for."
                        :revision (if written (revision-index written) (revision-index last)) :objects (list number)
                        :evidence evidence :steps steps)
@@ -1315,7 +1311,7 @@ dictionary with a /ByteRange among its objects."
           (odd (lambda (p) (format nil "~{~,0f~^ by ~}" (list (- (third (page-media p)) (first (page-media p))) (- (fourth (page-media p)) (second (page-media p)))))) "size")
           (odd (lambda (p) (format nil "~d°" (page-rotate p))) "rotation"))
         (let ((faces (mapcar (lambda (page)
-                               (remove-duplicates (loop for (nil . value) in (let ((f (dref pdf last (page-resources page) "/Font"))) (and (dict-p f) f))
+                               (remove-duplicates (loop for (nil . value) in (let ((f (dref pdf last (page-resources page) "/Font"))) (and (pdf-dictionary-p f) f))
                                                         collect (font-base (font-of pdf last value)))
                                                   :test #'string=))
                              pages)))
@@ -1336,22 +1332,22 @@ dictionary with a /ByteRange among its objects."
   "JavaScript, actions on opening, programs launched, addresses, forms sent and files embedded: named, never run or opened."
   (let ((acts '()) (files '()))
     (dolist (n (live-numbers pdf revision))
-      (let* ((object (revision-object pdf revision n)) (value (and object (pobj-value object))))
-        (when (dict-p value)
-          (let ((kind (dget value "/S")))
+      (let* ((object (revision-object pdf revision n)) (value (and object (pdf-indirect-value object))))
+        (when (pdf-dictionary-p value)
+          (let ((kind (pdf-get value "/S")))
             (when (and (stringp kind) (member kind '("/JavaScript" "/Launch" "/URI" "/SubmitForm" "/ImportData" "/GoToR" "/GoToE" "/RichMediaExecute") :test #'string=))
-              (push (list n (subseq kind 1) (let ((u (or (dget value "/URI") (dget value "/F") (dget value "/JS")))) (and (stringp u) (shorten u 100)))) acts)))
-          (when (dget value "/OpenAction") (push (list n "OpenAction" nil) acts))
-          (when (and (dget value "/AA") (not (dget value "/FT"))) (push (list n "AA (actions on events)" nil) acts))
-          (when (or (name-p (dget value "/Type") "/EmbeddedFile") (dget value "/EF"))
-            (unless (name-p (dget value "/Type") "/EmbeddedFile")
+              (push (list n (subseq kind 1) (let ((u (or (pdf-get value "/URI") (pdf-get value "/F") (pdf-get value "/JS")))) (and (stringp u) (shorten-string u 100 :one-line t)))) acts)))
+          (when (pdf-get value "/OpenAction") (push (list n "OpenAction" nil) acts))
+          (when (and (pdf-get value "/AA") (not (pdf-get value "/FT"))) (push (list n "AA (actions on events)" nil) acts))
+          (when (or (name-p (pdf-get value "/Type") "/EmbeddedFile") (pdf-get value "/EF"))
+            (unless (name-p (pdf-get value "/Type") "/EmbeddedFile")
               (let* ((ef (dref pdf revision value "/EF"))
-                     (stream-ref (or (dget ef "/UF") (dget ef "/F")))
-                     (stream (and (ref-p stream-ref) (revision-object pdf revision (second stream-ref))))
-                     (size (or (dget (dref pdf revision (and stream (pobj-value stream)) "/Params") "/Size")
-                               (and stream (pobj-stream-start stream) (- (pobj-stream-end stream) (pobj-stream-start stream))))))
-                (push (list n (let ((name (or (dget value "/UF") (dget value "/F")))) (if (stringp name) name "(no name)")) size
-                            (and stream (written-in pdf revision (pobj-number stream))))
+                     (stream-ref (or (pdf-get ef "/UF") (pdf-get ef "/F")))
+                     (stream (and (pdf-ref-p stream-ref) (revision-object pdf revision (second stream-ref))))
+                     (size (or (pdf-get (dref pdf revision (and stream (pdf-indirect-value stream)) "/Params") "/Size")
+                               (and stream (pdf-indirect-stream-start stream) (- (pdf-indirect-stream-end stream) (pdf-indirect-stream-start stream))))))
+                (push (list n (let ((name (or (pdf-get value "/UF") (pdf-get value "/F")))) (if (stringp name) name "(no name)")) size
+                            (and stream (written-in pdf revision (pdf-indirect-number stream))))
                       files)))))))
     (append
      (loop for (strength kinds words) in '((:look ("JavaScript" "Launch" "SubmitForm" "ImportData" "RichMediaExecute" "AA (actions on events)")
@@ -1390,12 +1386,12 @@ dictionary with a /ByteRange among its objects."
           for before = nil then previous
           for previous = r
           do (let ((encrypt (dref pdf r (revision-trailer r) "/Encrypt")))
-               (when (and encrypt (or (null before) (not (dget (revision-trailer before) "/Encrypt"))))
+               (when (and encrypt (or (null before) (not (pdf-get (revision-trailer before) "/Encrypt"))))
                  (push (found (if before :look :record)
                               (format nil "~:[The file is encrypted~;~:*~@(~a~) encrypts the file~]~@[ (~a~]~@[, version ~a~]~@[, revision ~a)~]~@[; ~a~]: its streams and strings are not read here."
                                       (and before (revision-name r))
-                                      (let ((f (dget encrypt "/Filter"))) (and (stringp f) (subseq f 1))) (dget encrypt "/V") (dget encrypt "/R")
-                                      (let ((p (dget encrypt "/P"))) (and (integerp p) (permission-words p))))
+                                      (let ((f (pdf-get encrypt "/Filter"))) (and (stringp f) (subseq f 1))) (pdf-get encrypt "/V") (pdf-get encrypt "/R")
+                                      (let ((p (pdf-get encrypt "/P"))) (and (integerp p) (permission-words p))))
                               :rule "A trailer with /Encrypt names how the file's strings and streams are encrypted."
                               :revision (revision-index r)
                               :evidence (list (format nil "/Encrypt in the trailer at ~a" (offset-words (or (revision-trailer-at r) 0)))))
@@ -1408,7 +1404,7 @@ dictionary with a /ByteRange among its objects."
   "The findings FUNCTION finds with ARGUMENTS; when it fails on what the file holds, one finding saying the check named NAME could not finish."
   (handler-case (progn (job-check-stop) (apply function arguments))
     (error (e)
-      (list (found :record (format nil "The check of ~a could not finish on this file: ~a" name (shorten (princ-to-string e) 200))
+      (list (found :record (format nil "The check of ~a could not finish on this file: ~a" name (shorten-string (princ-to-string e) 200 :one-line t))
                    :rule "A malformed file is read as far as it makes sense.")))))
 
 (defun all-findings (pdf accounts &optional (progress (constantly nil)))

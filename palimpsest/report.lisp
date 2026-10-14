@@ -32,8 +32,8 @@ look, then those for the record), and each revision from the original to the
 latest. \\<palimpsest-mode>\\[push-button] on a revision's PDF opens it in Tuatara's PDF view, on its
 log opens the log, on an object's number shows the object; \\[forward-button] and
 \\[backward-button] go from one of these to the next. \\[palimpsest-show-object] shows an object's dictionary and
-stream (as text, or in hex when it is not text; always in hex with
-\\[universal-argument]); \\[palimpsest-save] saves the revisions, their logs and the report to a
+stream (as text, or in hex in a buffer of its own when it is not text;
+in hex too with \\[universal-argument]); \\[palimpsest-save] saves the revisions, their logs and the report to a
 folder of your choosing; \\[palimpsest-write-revision] writes the revision whose part point is in
 as a PDF to show, its log beside it; \\[palimpsest-write-report] writes the report alone as
 text; \\[quit-window] closes. Closing the report closes the revisions and logs opened
@@ -43,8 +43,8 @@ were not saved."
 
 (define-major-mode palimpsest-object-mode special-mode
   "An object of a PDF examined by \\[palimpsest], read only: where it is in the
-file, its dictionary as written, and its stream decoded, as text or in hex.
-\\<palimpsest-object-mode>\\[quit-window] closes."
+file, its dictionary as written, and its stream decoded, as text, or in hex
+in a buffer of its own, which \\<palimpsest-object-mode>\\[push-button] on its name shows. \\[quit-window] closes."
   :lighter "PDF object" :interactive nil)
 
 (defvar *palimpsest-reports* '()
@@ -208,8 +208,8 @@ revision before. The same file gives the same log but for its date line."
       (flet ((place (r n)
                (let ((o (revision-object pdf r n)))
                  (cond ((null o) "not in the file")
-                       ((pobj-packed-in o) (format nil "in object stream ~d at ~a of its decoded octets" (pobj-packed-in o) (offset-words (pobj-at o))))
-                       (t (format nil "at ~a" (offset-words (pobj-at o))))))))
+                       ((pdf-indirect-packed-in o) (format nil "in object stream ~d at ~a of its decoded octets" (pdf-indirect-packed-in o) (offset-words (pdf-indirect-at o))))
+                       (t (format nil "at ~a" (offset-words (pdf-indirect-at o))))))))
         (format s "Added (~d):~%" (length (revision-added revision)))
         (dolist (n (revision-added revision))
           (format s "  object ~d ~a~@[, ~a~]~%" n (place revision n) (role-words pdf revision n)))
@@ -328,7 +328,7 @@ revision before. The same file gives the same log but for its date line."
                (multiple-value-bind (info number) (info-of pdf revision)
                  (declare (ignore info))
                  (line "Trailer" (format nil "~@[/Info object ~d~]~@[, /ID <~{~a~^> <~}>~]~@[, /Prev ~a~]" number
-                                         (let ((id (listed (dget (revision-trailer revision) "/ID")))) (and id (every #'stringp id) (mapcar #'id-hex id)))
+                                         (let ((id (pdf-array-items (pdf-get (revision-trailer revision) "/ID")))) (and id (every #'stringp id) (mapcar #'id-hex id)))
                                          (and (revision-prev revision) (hex-offset (revision-prev revision))))))
                (line "Claims" (let ((made (info-text pdf revision "/CreationDate")) (changed (info-text pdf revision "/ModDate"))
                                     (producer (info-text pdf revision "/Producer")))
@@ -350,7 +350,7 @@ revision before. The same file gives the same log but for its date line."
                    (when (page-change-text change)
                      (put (format nil "  Page ~d, its text:~%" (1+ (page-index page))) :strong)
                      (loop for (kind text) in (page-change-text change) repeat 60
-                           do (put (format nil "    ~:[-~;+~] ~a~%" (eq kind :added) (shorten text 120)) (if (eq kind :added) :type :comment))))
+                           do (put (format nil "    ~:[-~;+~] ~a~%" (eq kind :added) (shorten-string text 120 :one-line t)) (if (eq kind :added) :type :comment))))
                    (when (or (page-change-added change) (page-change-removed change))
                      (put (format nil "  Page ~d, what it draws:~%" (1+ (page-index page))) :strong)
                      (loop for m in (page-change-added change) repeat 40
@@ -433,22 +433,27 @@ in words; NIL when they can."
                                 when (path-kind (path-join folder name) :follow nil) collect name)))
                (and there (format nil "~{~a~^, ~} ~:[is~;are~] there already: nothing is written over" there (rest there))))))))
 
+(defun copy-checked (source target &key sum (cancel (list nil)))
+  "Copy the file SOURCE to TARGET, then check the copy's SHA-256 against SUM,
+the original's (worked out when not given). Returns the copy's SHA-256; an
+error naming TARGET when the two differ."
+  (unless (copy-regular-file source target :cancel cancel) (job-check-stop))
+  (let ((original (or sum (file-sha256 source :cancel cancel)))
+        (copy (file-sha256 target :cancel cancel)))
+    (unless (and original (equal original copy))
+      (error "the copy at ~a does not have its original's SHA-256" target))
+    copy))
+
 (defun save-copies (analysis folder &key (cancel (list nil)))
   "Copy ANALYSIS's revisions and logs to FOLDER (made when it is not there),
 and write the report there (REPORT-FILE-NAME), ending with where each copy is and
 its SHA-256, each checked against its original. Returns what was saved, each
 \(NAME SHA-256); an error naming the first copy whose sum differs."
   (let ((folder (slash-ended folder)) (saved '()))
-    (ensure-directories-exist (sb-ext:parse-native-namestring folder))
+    (ensure-directories folder)
     (loop for (source name sum) in (saved-names analysis)
           when source
-            do (let ((target (path-join folder name)))
-                 (unless (copy-regular-file source target :cancel cancel) (job-check-stop))
-                 (let ((original (or sum (file-sha256 source :cancel cancel)))
-                       (copy (file-sha256 target :cancel cancel)))
-                   (unless (and original (equal original copy))
-                     (error "the copy of ~a at ~a does not have its original's SHA-256" name target))
-                   (push (list name copy) saved))))
+            do (push (list name (copy-checked source (path-join folder name) :sum sum :cancel cancel)) saved))
     (let ((report (path-join folder (report-file-name analysis))))
       (write-new-file report
                        (with-output-to-string (s)
@@ -572,13 +577,9 @@ NIL when it can."
 \(LOG-BESIDE), each copy's SHA-256 checked against its original. Returns the
 PDF copy's SHA-256; an error when a sum differs."
   (multiple-value-bind (file log sum) (revision-files analysis number)
-    (ensure-directories-exist (sb-ext:parse-native-namestring (slash-ended (parent-path target))))
-    (loop for (source copy original) in (list (list file target sum) (list log (log-beside target) nil))
-          do (unless (copy-regular-file source copy :cancel cancel) (job-check-stop))
-             (let ((expected (or original (file-sha256 source :cancel cancel))))
-               (unless (and expected (equal expected (file-sha256 copy :cancel cancel)))
-                 (error "the copy at ~a does not have its original's SHA-256" copy))))
-    (file-sha256 target :cancel cancel)))
+    (ensure-directories target)
+    (prog1 (copy-checked file target :sum sum :cancel cancel)
+      (copy-checked log (log-beside target) :cancel cancel))))
 
 (defmethod job-take-in ((job palimpsest-revision-job))
   "Open the revision written in the PDF view and say what it is; or why it was not written."
@@ -642,24 +643,24 @@ file as it stood after that save: \\[palimpsest] on it finds the saves before."
 
 ;;; Objects shown
 
-(defun hex-dump (octets &key (start 0) (end (length octets)))
-  "OCTETS from START below END as a hex dump: each line an offset, sixteen octets in hex and as text."
-  (with-output-to-string (s)
-    (loop for at from start below end by 16
-          do (let ((stop (min end (+ at 16))))
-               (format s "~8,'0x  ~{~2,'0x ~}~va |~a|~%" at (coerce (subseq octets at stop) 'list)
-                       (* 3 (- 16 (- stop at))) "" (text-words octets at stop 16))))))
+(defun object-stream-name (analysis revision number)
+  "The name of the buffer showing in hex the stream of the object NUMBER as REVISION of ANALYSIS's PDF has it."
+  (format nil "*Palimpsest: ~a object ~d stream, revision ~d*" (analysis-name analysis) number (1+ (revision-index revision))))
 
-(defun text-like-p (octets)
-  "True when the first 4 KB of OCTETS look like text: nearly all printable ASCII, tabs and line ends."
-  (let ((n (min 4096 (length octets))))
-    (or (zerop n)
-        (>= (count-if (lambda (o) (or (<= 32 o 126) (member o '(9 10 13)))) octets :end n) (* 0.95 n)))))
+(defun object-stream-shown (analysis revision number)
+  "The decoded octets of the stream of the object NUMBER as REVISION of
+ANALYSIS's PDF has it, as many as are shown (*PALIMPSEST-LARGEST-SHOWN*);
+NIL when it has none, or it cannot be decoded."
+  (let* ((pdf (analysis-pdf analysis))
+         (object (revision-object pdf revision number))
+         (data (and object (stream-data pdf object))))
+    (and data (subseq data 0 (min (length data) *palimpsest-largest-shown*)))))
 
 (defun object-text (analysis revision number &key hex)
   "The text showing the object NUMBER as REVISION of ANALYSIS's PDF has it:
-where it is, what it is, its dictionary as written and its stream decoded,
-as text or (with HEX, or when it is not text) as a hex dump."
+where it is, what it is, its dictionary as written and its stream decoded:
+as text, or (with HEX, or when it is not text) named as shown in hex in a
+buffer of its own (OBJECT-STREAM-NAME)."
   (let* ((pdf (analysis-pdf analysis)) (octets (pdf-octets pdf))
          (object (revision-object pdf revision number)))
     (with-output-to-string (s)
@@ -670,42 +671,49 @@ as text or (with HEX, or when it is not text) as a hex dump."
             (dolist (line (object-evidence pdf revision number)) (format s "~a~%" line))
             (let ((role (role-words pdf revision number))) (when role (format s "It is ~a.~%" role)))
             (format s "~%Its dictionary, as written:~%~%")
-            (if (pobj-packed-in object)
-                (multiple-value-bind (pairs data) (packed-objects pdf (revision-object pdf revision (pobj-packed-in object)))
+            (if (pdf-indirect-packed-in object)
+                (multiple-value-bind (pairs data) (packed-objects pdf (revision-object pdf revision (pdf-indirect-packed-in object)))
                   (declare (ignore pairs))
-                  (format s "~a~%" (octets-latin-1 data :start (pobj-at object) :end (min (length data) (pobj-end object) (+ (pobj-at object) 65536)))))
-                (format s "~a~%" (octets-latin-1 octets :start (pobj-at object)
-                                                        :end (min (or (pobj-stream-start object) (pobj-end object)) (+ (pobj-at object) 65536)))))
-            (when (pobj-stream-start object)
+                  (format s "~a~%" (octets-latin-1 data :start (pdf-indirect-at object) :end (min (length data) (pdf-indirect-end object) (+ (pdf-indirect-at object) 65536)))))
+                (format s "~a~%" (octets-latin-1 octets :start (pdf-indirect-at object)
+                                                        :end (min (or (pdf-indirect-stream-start object) (pdf-indirect-end object)) (+ (pdf-indirect-at object) 65536)))))
+            (when (pdf-indirect-stream-start object)
               (multiple-value-bind (data why) (stream-data pdf object)
                 (format s "~%Its stream: ~:d octets in the file, ~a to ~a; filters: ~a; ~:[~:d octets decoded~;~:*~a~*~].~%~%"
-                        (- (pobj-stream-end object) (pobj-stream-start object))
-                        (hex-offset (pobj-stream-start object)) (hex-offset (pobj-stream-end object)) (filter-names object)
-                        (and why (if (member why *picture-filters* :test #'equal) (format nil "picture data (~a), not decoded" why) why))
+                        (- (pdf-indirect-stream-end object) (pdf-indirect-stream-start object))
+                        (hex-offset (pdf-indirect-stream-start object)) (hex-offset (pdf-indirect-stream-end object)) (filter-names object)
+                        (and why (if (member why *pdf-picture-filters* :test #'equal) (format nil "picture data (~a), not decoded" why) why))
                         (length (or data #())))
                 (when data
                   (let ((end (min (length data) *palimpsest-largest-shown*)))
-                    (if (or hex (not (text-like-p data)))
-                        (write-string (hex-dump data :end end) s)
+                    (if (or hex (binary-head-p data end))
+                        (format s "In hex: ~a~%" (object-stream-name analysis revision number))
                         (format s "~a~%" (octets-latin-1 data :end end)))
                     (when (< end (length data))
                       (format s "~%... ~:d octets more (*palimpsest-largest-shown*)~%" (- (length data) end))))))))))))
 
 (defun show-object (analysis revision number &key hex)
-  "Show the object NUMBER as REVISION of ANALYSIS's PDF has it in a buffer of its own, read only (OBJECT-TEXT)."
-  (let ((buffer (buffer-in-mode (format nil "*Palimpsest: ~a object ~d, revision ~d*" (analysis-name analysis) number (1+ (revision-index revision)))
-                                'palimpsest-object-mode)))
+  "Show the object NUMBER as REVISION of ANALYSIS's PDF has it in a buffer of
+its own, read only (OBJECT-TEXT); its stream, when it is shown in hex, in a
+buffer of its own too, the object's naming it as a button."
+  (let* ((buffer (buffer-in-mode (format nil "*Palimpsest: ~a object ~d, revision ~d*" (analysis-name analysis) number (1+ (revision-index revision)))
+                                 'palimpsest-object-mode))
+         (text (object-text analysis revision number :hex hex))
+         (name (object-stream-name analysis revision number))
+         (at (search (format nil "In hex: ~a" name) text))
+         (show-stream (lambda () (show-octets-in-hex name (object-stream-shown analysis revision number)))))
     (setf (buffer-local buffer :read-only) t)
-    (set-made-text buffer (object-text analysis revision number :hex hex))
+    (set-made-text buffer text :buttons (and at (list (list (+ at 8) (+ at 8 (length name)) show-stream))))
     (setf (buffer-point buffer) 0)
     (pop-to-buffer buffer)
+    (when at (funcall show-stream))
     buffer))
 
 (define-command palimpsest-show-object ()
   "Show an object of the PDF the report is on, read only: its place in the
 file, its dictionary as written and its stream decoded (at most
-*palimpsest-largest-shown*), as text, or as a hex dump when it is not text or
-with \\[universal-argument]. Asks for its number, offering the object whose number is at
+*palimpsest-largest-shown*), as text, or in hex in a buffer of its own when it
+is not text or with \\[universal-argument]. Asks for its number, offering the object whose number is at
 point, and shows it as the latest revision has it (the revision at point, on
 an object named under a revision)."
   (let ((analysis (buffer-local (current-buffer) 'analysis)))
@@ -734,9 +742,9 @@ an object named under a revision)."
 ;;; Asking for a PDF
 
 (defun pdf-path-p (path)
-  "True when the file at PATH begins as a PDF does (%PDF- in its first 1,024 octets)."
+  "True when the file at PATH begins as a PDF does: %PDF- and its version in its first 1,024 octets."
   (let ((head (ignore-errors (file-head path 1024))))
-    (and head (search (load-time-value (bytes "%PDF-")) head) t)))
+    (and head (pdf-header-at head) t)))
 
 (define-command palimpsest ()
   "Examine a PDF for signs of editing, from its octets alone: every revision

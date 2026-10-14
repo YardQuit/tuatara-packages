@@ -106,7 +106,17 @@ package most often needs:
   =xml-local-children=, =xml-find-all= and =xml-all-text= to walk the tree.
 - Octets, text and dates :: the type =octets= and its readers,
   =string-octets=, =octets-string=, =utf-16-text=; =time-words=,
-  =utc-time-words=, =iso-date-time=, =format-time=.
+  =utc-time-words=, =iso-date-time=, =format-time=; =octets-hex= writes
+  octets in hex, =shorten-string= cuts text to a length after a word.
+- PDF :: =pdf-header-at= tells a PDF by its first octets;
+  =pdf-object-at= reads a value, =pdf-get=, =pdf-ref-p= and
+  =pdf-array-items= look into it; =pdf-indirect-object-at= reads an object
+  where the file writes it, with its stream's place, and
+  =pdf-stream-octets= decodes that stream, held to a size, pictures left as
+  they are; =pdf-object-stream-offsets= and =pdf-packed-object= read the
+  objects an object stream holds. Nothing in the file is run.
+- Octets shown :: =show-octets-in-hex= shows octets a package made in a
+  buffer of their own in the hex view, read only.
 - Comparing :: =line-diff= gives the lines removed and added between two
   lists of lines, in little memory however long they are.
 - Lines of a large file :: =rewrite-lines= gives each line of a region to a

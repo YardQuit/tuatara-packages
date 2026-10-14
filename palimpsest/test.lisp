@@ -187,16 +187,10 @@ and %%EOF."
           (is equal '("Packed hello") (palimpsest::text-lines (palimpsest::marks-of pdf revision (first pages)))))))))
 
 (define-test (palimpsest palimpsest-decoders)
-  (is string= "Hello" (map 'string #'code-char (palimpsest::ascii-hex-decoded (pal-octets "48 65 6C6c6F>") 100)))
-  (is string= "Man " (map 'string #'code-char (palimpsest::ascii-85-decoded (pal-octets "9jqo^~>") 100)))
-  (is string= "abcxxx" (map 'string #'code-char (palimpsest::run-length-decoded (pal-octets 2 "abc" 254 "x" 128) 100)))
-  (is equalp (pal-octets 45 45 45 45 45 65 45 45 45 66)
-      (palimpsest::lzw-decoded (pal-octets #x80 #x0B #x60 #x50 #x22 #x0C #x0C #x85 #x01) 100 1))
   ;; a stream that would unpack without end is stopped at the limit, said so
-  (let ((tuatara-user:*palimpsest-largest-stream* (* 256 1024)))
-    (multiple-value-bind (data why) (palimpsest::decode-filters (pal-zlib-bomb 4000) '(("/FlateDecode")) (* 256 1024))
-      (false data)
-      (pal-has why "more than"))))
+  (multiple-value-bind (data why) (tuatara:pdf-stream-octets '(("/Filter" . "/FlateDecode")) (pal-zlib-bomb 4000) :limit (* 256 1024))
+    (false data)
+    (pal-has why "more than")))
 
 ;;; What pages draw
 
@@ -407,8 +401,8 @@ xmp:CreateDate='2020-03-01T09:00:00+13:00' xmp:CreatorTool='Kea Writer' xmpMM:Do
             (pal-has log "Steps to see it by hand:")
             ;; what changed, both places of each object, and the text found in the decoded stream
             (pal-has log (format nil "object 4 now at ~a, before at ~a"
-                                 (palimpsest::offset-words (palimpsest::pobj-at (palimpsest::revision-object pdf second-revision 4)))
-                                 (palimpsest::offset-words (palimpsest::pobj-at (palimpsest::revision-object pdf (aref (palimpsest::pdf-revisions pdf) 0) 4)))))
+                                 (palimpsest::offset-words (palimpsest::pdf-indirect-at (palimpsest::revision-object pdf second-revision 4)))
+                                 (palimpsest::offset-words (palimpsest::pdf-indirect-at (palimpsest::revision-object pdf (aref (palimpsest::pdf-revisions pdf) 0) 4)))))
             (pal-has log "text - Total: 100")
             (pal-has log "text + Total: 900")
             (pal-has log "(Total: 900) Tj")
@@ -428,11 +422,12 @@ xmp:CreateDate='2020-03-01T09:00:00+13:00' xmp:CreatorTool='Kea Writer' xmpMM:Do
               (pal-has text "+ Total: 900"))
             (true (tuatara.buffer:buffer-local buffer :buttons))
             (tuatara.buffer:kill-buffer buffer))
-          ;; an object shown: its place, its dictionary, its stream as text, or in hex
+          ;; an object shown: its place, its dictionary, its stream as text, or in hex in a buffer of its own
           (let ((text (palimpsest::object-text analysis second-revision 4)))
             (pal-has text "Object 4 0 begins at")
             (pal-has text "(Total: 900) Tj"))
-          (pal-has (palimpsest::object-text analysis second-revision 4 :hex t) "42 54 20 2F 46 31")
+          (pal-has (palimpsest::object-text analysis second-revision 4 :hex t) "In hex: *Palimpsest: invoice.pdf object 4 stream, revision 2*")
+          (is equalp (pal-octets "BT /F1") (subseq (palimpsest::object-stream-shown analysis second-revision 4) 0 6))
           ;; saved where asked, each copy's sum its original's; never beside the evidence, in the cache, or over a file
           (pal-has (palimpsest::save-refusal analysis (namestring dir)) "the folder of the PDF examined")
           (pal-has (palimpsest::save-refusal analysis folder) "within palimpsest's own folder in the cache")
