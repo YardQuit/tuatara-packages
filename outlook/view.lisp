@@ -22,7 +22,7 @@ run, and nothing it points to fetched.
 can read (one that is a message as a message); \\[mail-open-attachment-outside] opens that copy in
 the desktop's program, after asking; \\[forward-button] and \\[backward-button] go from one
 attachment to the next; \\[mail-view-file-text] shows the file of the message itself, as
-text; \\[quit-window] or \\`h' closes it, back to the list it was opened from."
+text; \\[quit-window] closes it, back to the list it was opened from."
   :lighter "Mail" :interactive nil)
 
 (defvar *mail-views* '()

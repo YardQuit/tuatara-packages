@@ -32,7 +32,6 @@ here.
 |---|---|---|
 | A message | `O` | Opens the attachment at point in the desktop's own program for its kind, after asking: a copy only you can read, and only a kind that may be opened outside Tuatara (a picture, a PDF, a sound, a video, an Office document). That program is not shut in the sandbox. |
 | A message | `T` | Shows the message's file as its text: opened safely when the message came from a mailbox or an attachment, else as any file is opened. |
-| A message | `h` | Closes it, back to the mailbox (or wherever it was opened from). |
 | A mailbox | `RET`, `l` | Opens the item on the line: a message as one, read only, the matches of the list's filters lit in it; a contact or an appointment as its text, safely. On a folder's line, folds or unfolds the folder. |
 | A mailbox | `TAB`, `S-TAB` | Folds or unfolds the folder the line is in; every folder. |
 | A mailbox | `m`, `u`, `U` | Marks the message on the line (`>`) and moves down; takes its mark off; takes every mark off. A count marks as many. |
@@ -40,7 +39,8 @@ here.
 | A mailbox | `C-s`, `C-r` | Narrows the list, as a regular expression is typed, to the messages whose headers or contents match (see Searching a mailbox). `RET` keeps the pattern as a filter, `C-g` lets the one typed go. |
 | A mailbox | `C-x / l` | Lists the filters narrowing the list, each with how many items it leaves; there `d` takes away the filter on the line and `D` all of them. |
 | A mailbox | `C-x / r` | Takes every filter away: the whole list again. |
-| Either | `q` | Closes it (`h` too in a mailbox). |
+| A message | `q` | Closes it, back to the mailbox (or wherever it was opened from); `h` moves the cursor left, as everywhere. |
+| A mailbox | `q`, `h` | Closes it. |
 
 ## Mailboxes
 

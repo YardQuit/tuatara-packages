@@ -744,7 +744,7 @@ and the subjects kept."
           (is = 3 (reduce #'+ (outlook::mailbox-job-folders job) :key (lambda (f) (length (cdr f)))))
           (tuatara.modes:set-major-mode list 'outlook::mailbox-mode)
           (outlook::mailbox-render list job)
-          (let ((shown '()) (opened nil) (back nil) (marked nil)
+          (let ((shown '()) (opened nil) (moved nil) (back nil) (marked nil)
                 (copies (namestring (merge-pathnames "copies/" dir))))
             (tuatara.tests::run-keys
              (list (lambda () (tuatara:show-buffer list))
@@ -752,9 +752,10 @@ and the subjects kept."
                    "m" (lambda () (setf marked (tuatara.defaults::list-marked list :marked)))
                    "k k RET" (lambda () (push (tuatara.buffer:buffer-string list) shown))
                    "l" (lambda () (push (tuatara.buffer:buffer-string list) shown))
-                   ;; l opens a message, h comes back to the list
+                   ;; l opens a message, q comes back to the list, h only moving the cursor
                    "j l" (lambda () (setf opened (tuatara.buffer:buffer-name (tuatara:current-buffer))))
-                   "h" (lambda () (setf back (tuatara:current-buffer)))
+                   "h" (lambda () (setf moved (tuatara:current-buffer)))
+                   "q" (lambda () (setf back (tuatara:current-buffer)))
                    ;; C copies the one marked out as asked, into a folder made for it
                    (format nil "C m s g RET C-a C-k ~a C-j" (tuatara.tests::rimu-typed copies))
                    #'wait-for-mailbox-export :tick)
@@ -765,6 +766,7 @@ and the subjects kept."
             (false (search "Second" (first (rest shown))))
             (has (first shown) "Second")
             (is string= "Re: a/b?" opened)
+            (is string= "Re: a/b?" (tuatara.buffer:buffer-name moved))
             (is eq list back)
             (let ((name (format nil "~a Re a-b.msg" (tuatara:format-time "%F %H%M" sent))))
               (is equal (list name) (copied copies))
