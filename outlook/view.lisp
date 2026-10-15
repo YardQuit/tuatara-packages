@@ -52,10 +52,6 @@ working in the background."
 
 ;;; The text shown
 
-(defun mail-line (text)
-  "TEXT, a value an item gives, on one line: its line ends and tabs as spaces."
-  (and text (substitute-if #\Space (lambda (c) (member c '(#\Newline #\Return #\Tab))) text)))
-
 (defun mail-attachment-words (attachment)
   "What ATTACHMENT is, in words: a message and its subject; its size and
 kind by its contents, said when its name says another; hidden from its
@@ -63,8 +59,8 @@ reader, or shown in the text, when it is."
   (let ((octets (mail-attachment-octets attachment))
         (message (mail-attachment-message attachment)))
     (format nil "~a~:[~;, hidden from its reader~]~:[~;, shown in the text~]"
-            (cond (message (let ((subject (mail-line (mail-subject message))))
-                             (format nil "a message~@[: ~a~]" (and (not (equal subject (mail-line (mail-attachment-name attachment)))) subject))))
+            (cond (message (let ((subject (one-line (mail-subject message))))
+                             (format nil "a message~@[: ~a~]" (and (not (equal subject (one-line (mail-attachment-name attachment)))) subject))))
                   (octets (multiple-value-bind (words kind) (octets-kind (subseq octets 0 (min (length octets) +binary-sample+)))
                             (format nil "~a, ~a~@[, said to be ~a~]~:[~;, NOT what its name says~]"
                                     (octets-words (length octets))
@@ -82,14 +78,14 @@ reader, or shown in the text, when it is."
   "The headers of MAIL shown above it, each (LABEL VALUE FACE), on one line:
 those it has, who it is from and to, its subject, dates and Message-ID."
   (remove-if-not (lambda (line) (plusp (length (second line))))
-                 (list (list "From" (mail-line (mail-from mail)))
-                       (list "To" (mail-line (mail-to mail)))
-                       (list "Cc" (mail-line (mail-cc mail)))
-                       (list "Bcc" (mail-line (mail-bcc mail)))
-                       (list "Subject" (or (mail-line (mail-subject mail)) "(none)") :strong)
-                       (list "Sent" (or (time-words (mail-sent mail)) (mail-line (mail-date-text mail))))
+                 (list (list "From" (one-line (mail-from mail)))
+                       (list "To" (one-line (mail-to mail)))
+                       (list "Cc" (one-line (mail-cc mail)))
+                       (list "Bcc" (one-line (mail-bcc mail)))
+                       (list "Subject" (or (one-line (mail-subject mail)) "(none)") :strong)
+                       (list "Sent" (or (time-words (mail-sent mail)) (one-line (mail-date-text mail))))
                        (list "Received" (time-words (mail-received mail)))
-                       (list "Message-ID" (mail-line (mail-message-id mail))))))
+                       (list "Message-ID" (one-line (mail-message-id mail))))))
 
 (defun mail-pieces (mail &key brief (open (constantly nil)))
   "The pieces (as RENDER-PIECES takes them) showing MAIL: its headers, its
@@ -109,7 +105,7 @@ text alone, no buttons."
           (heading (format nil "Attachments: ~d" (length attachments)))
           (dolist (attachment attachments)
             (put "  ")
-            (let ((name (or (mail-line (mail-attachment-name attachment)) "(no name)")))
+            (let ((name (or (one-line (mail-attachment-name attachment)) "(no name)")))
               (if brief
                   (put name :strong)
                   (push (list name :link (let ((a attachment)) (lambda () (funcall open a)))) pieces)))
@@ -132,7 +128,7 @@ text alone, no buttons."
           (heading "What the message says of itself")
           (loop for (label . text) in (mail-details mail)
                 do (put (format nil "  ~a: " label) :list-label)
-                   (put (format nil "~a~%" (mail-line text)))))
+                   (put (format nil "~a~%" (one-line text)))))
         (when (mail-headers mail)
           (heading "Internet headers")
           (put (format nil "~a~%" (remove #\Return (mail-headers mail))) :list-dim))))
@@ -159,7 +155,7 @@ attachments buttons, point at its start."
 (defun mail-show-message (mail name)
   "Show MAIL, a message read already (one attached to another), in a buffer
 of its own called NAME (made unique)."
-  (let ((buffer (make-buffer (unique-buffer-name (or (mail-line name) "(no subject)")))))
+  (let ((buffer (make-buffer (unique-buffer-name (or (one-line name) "(no subject)")))))
     (set-major-mode buffer 'mail-view-mode)
     (setf (buffer-local buffer :read-only) t)
     (mail-render buffer mail)
@@ -195,7 +191,7 @@ saved mail), read in the background when there is none yet; called NAME, or
 by the file's name; SAFE when the file is to be shown as text safely
 \(\\[mail-view-file-text]). With PREVIEW, one of its own for the preview beside
 a mailbox's list (*MAIL-PREVIEWS*), its name saying so."
-  (let ((name (format nil "~a~:[~; (preview)~]" (or (mail-line name) (native-file-name native)) preview)))
+  (let ((name (format nil "~a~:[~; (preview)~]" (or (one-line name) (native-file-name native)) preview)))
     (reading-buffer (if preview '*mail-previews* '*mail-views*) (lambda (b) (car (buffer-local b 'mail-source))) native
                     name (format nil "Reading ~a...~%" name) 'mail-view-mode
                     (lambda (buffer)
@@ -229,7 +225,7 @@ saved mail as a message, a PDF, an Office document or a picture as rimu
 shows it (*MAIL-ATTACHMENT-VIEWS*), the rest visited safely (read only,
 nothing in it acted on, a binary one in the hex view). Nothing is saved
 where you keep your files."
-  (let ((name (or (mail-line (mail-attachment-name attachment)) "The attachment")))
+  (let ((name (or (one-line (mail-attachment-name attachment)) "The attachment")))
     (cond ((mail-attachment-message attachment)
            (mail-show-message (mail-attachment-message attachment) name))
           ((mail-attachment-octets attachment)
@@ -255,9 +251,9 @@ agrees: *open-externally-kinds*). That program is not shut in the sandbox."
   (let ((attachment (mail-attachment-at-point)))
     (cond ((null attachment) (message "No attachment at point: \\<mail-view-mode>\\[forward-button] goes to the next"))
           ((mail-attachment-message attachment)
-           (message "~a is a message: \\<mail-view-mode>\\[push-button] opens it here" (mail-line (mail-attachment-name attachment))))
+           (message "~a is a message: \\<mail-view-mode>\\[push-button] opens it here" (one-line (mail-attachment-name attachment))))
           ((null (mail-attachment-octets attachment))
-           (message "~a: ~a" (mail-line (mail-attachment-name attachment)) (or (mail-attachment-why attachment) "nothing to open")))
+           (message "~a: ~a" (one-line (mail-attachment-name attachment)) (or (mail-attachment-why attachment) "nothing to open")))
           (t (open-externally-file (mail-attachment-copy attachment))))))
 
 (define-command mail-view-file-text ()
@@ -318,7 +314,7 @@ table drawn above the message as a mail program prints it, in the message's
 own colours."
   (let ((names (loop for attachment in (mail-attachments mail)
                      unless (mail-attachment-hidden attachment)
-                       collect (or (mail-line (mail-attachment-name attachment)) "(no name)"))))
+                       collect (or (one-line (mail-attachment-name attachment)) "(no name)"))))
     (with-output-to-string (out)
       (format out "<table style=\"border-collapse:collapse;margin:0 0 4mm;width:100%;font:10pt sans-serif;~
                    border-bottom:1px solid currentColor\">")
@@ -371,7 +367,7 @@ none); FETCHING, how many things it would fetch from the internet."
 
 (define-job-words mail-pages-job
   :doing "Drawing the message"
-  :description (format nil "Drawing ~a as it looks" (or (mail-line (mail-subject (mail-pages-job-mail job))) "a message"))
+  :description (format nil "Drawing ~a as it looks" (or (one-line (mail-subject (mail-pages-job-mail job))) "a message"))
   :verb "draw the message"
   :left-words "nothing drawn"
   :at-exit :quiet)

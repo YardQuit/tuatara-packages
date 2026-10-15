@@ -131,7 +131,7 @@ Nothing else of an attachment is decoded."
              (walk (part)
                (loop for (name . value) in (mime-part-headers part)
                      while (plusp left)
-                     do (put (format nil "~a: ~a" name (mail-line (mime-decode-words value)))))
+                     do (put (format nil "~a: ~a" name (one-line (mime-decode-words value)))))
                (dolist (leaf (mime-leaves part))
                  (when (plusp left)
                    (let ((name (mime-part-name leaf)) (type (mime-part-type leaf)))
@@ -167,7 +167,7 @@ there, a new file for you alone."
                    (part (mime-read octets))
                    (leaves (mime-leaves part))
                    (body (mime-body-part leaves))
-                   (item (flet ((header (name) (let ((value (mime-header part name))) (and value (mail-line (mime-decode-words value))))))
+                   (item (flet ((header (name) (let ((value (mime-header part name))) (and value (one-line (mime-decode-words value))))))
                            (make-mailbox-item :path path :message t :sent (mail-date-time (mime-header part "date"))
                                               :from (header "from") :subject (header "subject")
                                               :attachments (count-if (lambda (leaf) (mime-attachment-p leaf body)) leaves)
@@ -350,7 +350,7 @@ mark (>), when it was sent, whom from, its attachments and its subject.")
 
 (defun mailbox-folder-title (folder)
   "What a mailbox's list calls FOLDER, the path readpst wrote it at."
-  (if (plusp (length folder)) (mail-line folder) "(the mailbox itself)"))
+  (if (plusp (length folder)) (one-line folder) "(the mailbox itself)"))
 
 (defun mailbox-row (list item)
   "The pieces of the line of ITEM in LIST, a mailbox's list: its mark, when
