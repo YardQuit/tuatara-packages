@@ -20,14 +20,6 @@
 
 (in-package #:csv-records)
 
-;; made for a Tuatara whose API has these: an older one is refused at once,
-;; rather than each command failing on a name it lacks
-(let ((missing (remove-if (lambda (name) (eq (nth-value 1 (find-symbol name '#:tuatara)) :external))
-                          '("CSV-DELIMITER" "CSV-FIELD-SPANS" "CSV-FIELD-BOUNDS" "CSV-VALUE-BOUNDS"
-                            "SELECTED-LINES" "REWRITE-LINES" "FILTER-LINES"))))
-  (when missing
-    (error "csv-records needs a newer Tuatara, whose API has ~{~(~a~)~^, ~}: build it again from its sources" missing)))
-
 ;;; Records kept or deleted
 
 (define-command csv-keep-records ()
