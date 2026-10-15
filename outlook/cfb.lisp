@@ -295,7 +295,7 @@ HTML itself as a second value."
         (stack '()) (depth 0) (deeper 0) (steps 0) (n (length octets)) (i 0))
     (labels ((flush ()
                (when (plusp (fill-pointer pending))
-                 (emit (mail-decode (coerce pending '(simple-array (unsigned-byte 8) (*))) charset))
+                 (emit (charset-text (coerce pending '(simple-array (unsigned-byte 8) (*))) charset))
                  (setf (fill-pointer pending) 0)))
              (emit (text)
                (when (< written limit)

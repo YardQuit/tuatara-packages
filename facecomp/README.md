@@ -7,8 +7,9 @@ program.
 photo, or in several photos of one person averaged into one template, and in
 each photo compared with it, and says how alike they are: a similarity, a
 percentage and a confidence label (Almost certain, Very likely, Likely, Even
-chance, Unlikely, Very unlikely, Almost no chance). This package asks for the
-photos, runs facecomp and shows its report in Tuatara.
+chance, Unlikely, Very unlikely, Almost no chance). With this package the
+photos are marked in rimu, Tuatara's file manager, and facecomp's report is
+shown in Tuatara.
 
 ## Loading it
 
@@ -25,15 +26,16 @@ your own build on the `PATH`. `M-x check-health` says whether it is found.
 
 ## Comparing
 
-`M-x facecomp-compare`:
+In a rimu list (`C-x d`):
 
-- **Anywhere:** asks for a master photo, whether to add another photo of the
-  *same person* (several match more reliably), then for the photos to compare,
-  one at a time, from the master's folder.
-- **In a rimu list with two or more files marked:** asks which of them are
-  masters (their names separated by commas, the first offered) and compares
-  the rest.
-- **With `C-u`:** also asks for a detection confidence for this run only, 0.8
+- `C-c f m` marks the photo on the line as a **master** photo (`M`). Masters
+  may be marked in any list, as they often stand in a folder of their own;
+  several photos of the *same person* match more reliably together. The mark
+  is the one the facematch package uses, so one marking serves both.
+- `m` marks the photos to compare, as for any operation.
+- `C-c f c` (`M-x facecomp-compare`) compares the photos marked in the
+  directory the list shows with every master marked.
+- With `C-u` it also asks for a detection confidence for this run only, 0.8
   offered (the strict setting: it never took a non-face in facecomp's
   measurements).
 
@@ -41,8 +43,8 @@ The report, in `*facecomp*`, lists the masters (and how alike they are when
 several, with a warning when they may not all be one person), the model and
 cutoff, any photo that could not be read and why, then each photo, closest
 first: its match and confidence, coloured by how likely it is, its similarity,
-and how many faces it holds when more than one. `RET` on a photo opens it
-safely; `q` closes the report.
+and how many faces it holds when more than one. It is shown as help is: `RET`
+on a photo opens it safely; `q` closes the report.
 
 ## Safety
 

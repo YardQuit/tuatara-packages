@@ -9,9 +9,10 @@
 ;;;; several photos of one person averaged into one template, and in each
 ;;;; photo compared with it, and says how alike they are: a similarity, a
 ;;;; percentage and a confidence label (Almost certain, Very likely, ...).
-;;;; M-x facecomp-compare asks for the photos, or takes the files marked in a
-;;;; rimu list, runs facecomp in the background and shows its report in
-;;;; *facecomp*.
+;;;; Photos are chosen in rimu: \[facecomp-mark-master] marks a master photo
+;;;; (M, in any list), m marks the photos to compare as for any operation, and
+;;;; \[facecomp-compare] runs facecomp on them in the background and shows its
+;;;; report in *facecomp*.
 ;;;;
 ;;;; The photos may be evidence and a picture may be made to harm the program
 ;;;; reading it, so facecomp runs shut in the sandbox: it sees private copies
@@ -164,13 +165,6 @@ no report."
 
 ;;; The report
 
-(define-major-mode facecomp-mode special-mode
-  "The report of a comparison of faces (\\[facecomp-compare]): the master
-photos, how alike they are when several, and each photo compared, closest
-first, with its match, confidence and similarity. \\<facecomp-mode>\\[push-button] on a
-photo, or a click on it, shows the picture beside it; \\[quit-window] closes the report."
-  :lighter "facecomp" :interactive nil)
-
 (defun facecomp-show-photo (path)
   "Show the photo at PATH beside the report, as its picture, drawn in the
 sandbox (IMAGE-VIEW-VISIT); what is no picture it can draw, opened safely."
@@ -179,9 +173,9 @@ sandbox (IMAGE-VIEW-VISIT); what is no picture it can draw, opened safely."
         (visit-path path :safe t :show show))))
 
 (defun facecomp-report-pieces (report names)
-  "The pieces (as RENDER-PIECES takes them) of the report REPORT, facecomp's
+  "The pieces (as SHOW-HELP-PIECES takes them) of the report REPORT, facecomp's
 read JSON, its photos' names (NAMES, as RUN-ON-COPIES gives them) written as
-theirs, each photo a button showing it."
+theirs, each photo a link showing it."
   (let ((pieces '()))
     (labels ((put (text &optional face) (push (if face (cons text face) text) pieces))
              (items (key) (coerce (json-items report key) 'list))
@@ -229,88 +223,62 @@ theirs, each photo a button showing it."
 (defmethod job-take-in ((job facecomp-job))
   "Show facecomp's report in *facecomp*, or say why there is none."
   (cond ((facecomp-job-report job)
-         (let ((buffer (buffer-in-mode "*facecomp*" 'facecomp-mode)))
-           (render-pieces buffer (facecomp-job-shown job) :point :start)
-           (display-buffer buffer)
-           (message "Faces compared: ~d photo~:p" (length (json-items (facecomp-job-report job) "results")))))
+         (show-help-pieces (facecomp-job-shown job) :name "*facecomp*")
+         (message "Faces compared: ~d photo~:p" (length (json-items (facecomp-job-report job) "results"))))
         ((facecomp-job-failure job) (message "~a" (facecomp-job-failure job)))
         (t (message "~a" (job-ending-words job)))))
 
-;;; Choosing the photos
+;;; Choosing the photos in rimu
 
-(defun facecomp-read-photo (prompt &optional directory)
-  "Ask for a photo with PROMPT, from DIRECTORY when given; its full path,
-refused when it is no file."
-  (let* ((typed (if directory
-                    (read-path prompt :initial (abbreviated-path directory))
-                    (read-file-path prompt)))
-         (path (and typed (plusp (length typed)) (native (expand-path typed)))))
-    (unless (and path (eq :regular (path-kind path)))
-      (error "~a is no file" (or typed "Nothing")))
-    path))
+(defparameter *facecomp-master-mark* #\M
+  "The mark of a master photo in a rimu list.")
 
-(defun facecomp-read-several (first-prompt question nth-prompt &optional directory)
-  "Ask for photos one at a time: the first with FIRST-PROMPT, from DIRECTORY
-when given, then, while QUESTION (given how many so far) is answered yes,
-another with NTH-PROMPT (given its number), from DIRECTORY or the first one's
-folder. Their full paths, in order."
-  (let* ((first (facecomp-read-photo first-prompt directory))
-         (directory (or directory (parent-path first)))
-         (photos (list first)))
-    (loop for n from 1
-          while (yes-or-no-p* (format nil question n))
-          do (push (facecomp-read-photo (format nil nth-prompt (1+ n)) directory) photos))
-    (nreverse photos)))
+(define-command facecomp-mark-master ()
+  "Mark the photo on the line of this rimu list as a master photo (M), one of
+the person the photos are compared with, and go to the next line;
+\\<rimu-mode>\\[list-unmark-entry] takes the mark away. Masters may be marked in
+any list: \\[facecomp-compare] takes them all."
+  (if (rimu-list-p (current-buffer))
+      (rimu-mark-and-go-on *facecomp-master-mark*)
+      (message "Master photos are marked in a rimu list (\\[rimu])")))
 
-(defun facecomp-choose-masters (marked)
-  "Ask which of the files MARKED are master photos, their names separated by
-commas, the first offered; the rest are the photos compared. Two values: the
-masters and the photos."
-  (let* ((names (mapcar #'native-file-name marked))
-         (typed (read-string (format nil "Master photos of the ~d marked, separated by commas: " (length marked))
-                             :initial (first names)))
-         (chosen (remove "" (mapcar (lambda (s) (string-trim " " s)) (uiop:split-string typed :separator ",")) :test #'string=))
-         (masters (mapcar (lambda (name)
-                            (let ((at (position name names :test #'string=)))
-                              (if at (nth at marked) (error "~a is not one of the marked files" name))))
-                          (or chosen (list (first names))))))
-    (values masters (remove-if (lambda (path) (member path masters :test #'string=)) marked))))
+(defun facecomp-masters ()
+  "The master photos marked (M) in every rimu list and every directory it has
+shown, in the order shown."
+  (remove-duplicates (loop for buffer in (buffer-list)
+                           when (rimu-list-p buffer)
+                             append (rimu-chosen-paths buffer :files-only t :mark *facecomp-master-mark*))
+                     :test #'string= :from-end t))
 
 (define-command facecomp-compare ()
-  "Compare the faces in photos with the face of a master photo, or of several
-photos of one person averaged into one template, by facecomp, and show how
-alike each is in *facecomp*: a match, a confidence label (Almost certain, Very
-likely, ...) and the similarity. In a rimu list with two or more files marked
-in the directory it shows, asks which of them are masters (several separated
-by commas) and compares the rest; elsewhere asks for the masters, then for the
-photos, one at a time. With
+  "Compare the faces in the photos marked (m) in the directory this rimu list
+shows with the face of the master photos marked (\\<rimu-mode>\\[facecomp-mark-master], M, in
+any list), several photos of one person averaged into one template, by
+facecomp, and show how alike each is in *facecomp*: a match, a confidence
+label (Almost certain, Very likely, ...) and the similarity. With
 \\[universal-argument], asks for a detection confidence for this run (0.8 is
 the strict one). facecomp runs shut in the sandbox on copies of the photos, in
 the background; the photos are only read."
   (let* ((buffer (current-buffer))
+         (confidence-asked (prefix-argument))
+         (masters (facecomp-masters))
          ;; the photos marked in the directory shown, not those kept marked elsewhere
-         (marked (rimu-chosen-paths buffer :files-only t :here-only t))
-         (confidence-asked (prefix-argument)))
-    (multiple-value-bind (masters photos)
-        (if (>= (length marked) 2)
-            (facecomp-choose-masters marked)
-            ;; several masters of the same person match more reliably together
-            (let ((masters (facecomp-read-several "Master photo: " "Add another photo of the same person (~d so far)?"
-                                                  "Master photo ~d: ")))
-              (values masters (facecomp-read-several "Photo to compare: " "Add another photo to compare (~d so far)?"
-                                                     "Photo ~d: " (parent-path (first masters))))))
-      (let ((confidence (if confidence-asked
-                            (read-decimal-number "Detection confidence for this run (~a): " 0.8
-                                                 :valid (lambda (n) (and (plusp n) (<= n 1)))
-                                                 :refusal "Not a number above 0 and at most 1.")
-                            *facecomp-detection-confidence*)))
-        (cond ((null photos) (message "No photo to compare with the master"))
-              ((null (user-program-path *facecomp-program*))
-               (message "facecomp is not there: install it, or give its path in *facecomp-program*"))
-              (t (facecomp-check-settings confidence)
-                 (start-job-thread (make-facecomp-job buffer masters photos confidence) #'facecomp-work
-                                   :name "tuatara facecomp")
-                 (message "Comparing ~d photo~:p with ~a..." (length photos) (native-file-name (first masters)))))))))
+         (photos (remove-if (lambda (path) (member path masters :test #'string=))
+                            (rimu-chosen-paths buffer :files-only t :here-only t))))
+    (cond ((not (rimu-list-p buffer)) (message "Photos are marked in a rimu list (\\[rimu]), and compared from it"))
+          ((null masters) (message "No master photo is marked: \\<rimu-mode>\\[facecomp-mark-master] marks one (M)"))
+          ((null photos) (message "No photo to compare is marked in this directory: \\<rimu-mode>\\[list-mark-entry] marks one"))
+          ((null (user-program-path *facecomp-program*))
+           (message "facecomp is not there: install it, or give its path in *facecomp-program*"))
+          (t (let ((confidence (if confidence-asked
+                                   (read-decimal-number "Detection confidence for this run (~a): " 0.8
+                                                        :valid (lambda (n) (and (plusp n) (<= n 1)))
+                                                        :refusal "Not a number above 0 and at most 1.")
+                                   *facecomp-detection-confidence*)))
+               (facecomp-check-settings confidence)
+               (start-job-thread (make-facecomp-job buffer masters photos confidence) #'facecomp-work
+                                 :name "tuatara facecomp")
+               (message "Comparing ~d photo~:p with ~d master photo~:p..." (length photos) (length masters)))))))
 
 ;;; Loading
 
@@ -321,9 +289,12 @@ the background; the photos are only read."
                           "install facecomp, or give its path in *facecomp-program*")))
 
 (defun install-facecomp ()
-  "Make the report's photos buttons, and have \\[check-health] say what
-compares faces here."
-  (buttons-in-mode 'facecomp-mode "the report of faces compared (\\[facecomp-compare])")
+  "Bind facecomp's keys in rimu, and have \\[check-health] say what compares
+faces here."
+  ;; under C-c f, as facematch's: the mark of a master photo is the same M for both
+  (define-keys *rimu-keymap* '(("C-c f m" facecomp-mark-master) ("C-c f c" facecomp-compare)))
+  (label-keys *rimu-keymap* '(("C-c f" "faces")))
+  (commands-for-mode 'rimu-mode "a rimu list, with the facecomp package" 'facecomp-mark-master 'facecomp-compare)
   (pushnew 'facecomp-health-words *health-decoder-functions*))
 
 (install-facecomp)

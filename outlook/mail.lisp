@@ -111,27 +111,9 @@ the other is missing or the same; NIL for neither."
 
 ;;; Encodings
 
-(defparameter *mail-charset-aliases*
-  '(("us-ascii" . :latin-1) ("ascii" . :latin-1) ("ansi_x3.4-1968" . :latin-1) ("utf8" . :utf-8) ("latin1" . :latin-1)
-    ("iso-8859-8-i" . :iso-8859-8) ("gb2312" . :gbk) ("x-gbk" . :gbk) ("cp936" . :gbk) ("cp932" . :shift_jis)
-    ("windows-31j" . :shift_jis) ("x-sjis" . :shift_jis) ("unicode" . :utf-16le) ("utf-16" . :utf-16le)
-    ("unicode-1-1-utf-7" . nil) ("utf-7" . nil))
-  "Charsets messages name otherwise than the system's encodings are named,
-each (NAME . ENCODING), ENCODING NIL for one read as UTF-8.")
-
-(defun mail-charset-format (charset)
-  "The encoding a message's CHARSET (as MIME names it: utf-8, iso-8859-1,
-windows-1252) stands for, a keyword the system decodes; NIL for none known
-or UTF-8, which is read the editor's own way."
-  (when (and charset (plusp (length charset)) (< (length charset) 40))
-    (let* ((name (string-downcase (string-trim " \"'" charset)))
-           (alias (assoc name *mail-charset-aliases* :test #'string=))
-           (format (if alias (cdr alias) (find-symbol (string-upcase name) :keyword))))
-      (and format (not (eq format :utf-8)) (ignore-errors (sb-impl::get-external-format format)) format))))
-
 (defun mail-codepage-charset (codepage)
   "The charset Outlook's code page number CODEPAGE stands for, as
-MAIL-CHARSET-FORMAT takes it (1252 windows-1252, 65001 utf-8); NIL for none."
+CHARSET-TEXT takes it (1252 windows-1252, 65001 utf-8); NIL for none."
   (and (integerp codepage)
        (case codepage
          (65001 "utf-8") ((20127 28591) "iso-8859-1") (1200 "utf-16le") (1201 "utf-16be") (20866 "koi8-r")
@@ -139,18 +121,6 @@ MAIL-CHARSET-FORMAT takes it (1252 windows-1252, 65001 utf-8); NIL for none."
          (t (cond ((<= 28592 codepage 28606) (format nil "iso-8859-~d" (- codepage 28590)))
                   ((<= 1250 codepage 1258) (format nil "windows-~d" codepage))
                   ((< 0 codepage 10000) (format nil "cp~d" codepage)))))))
-
-(defun mail-decode (octets charset &key (start 0) (end (length octets)))
-  "OCTETS from START below END as text in CHARSET (MAIL-CHARSET-FORMAT):
-an octet the encoding has no character for as U+FFFD; in UTF-8, or a
-charset not known, as the editor reads files, an octet that is not UTF-8
-kept as its raw byte."
-  (let ((octets (coerce octets '(simple-array (unsigned-byte 8) (*))))
-        (format (mail-charset-format charset)))
-    (or (and format
-             (ignore-errors (sb-ext:octets-to-string octets :start start :end end
-                                                            :external-format (list format :replacement (code-char #xFFFD)))))
-        (octets-string octets :start start :end end))))
 
 ;;; Times
 

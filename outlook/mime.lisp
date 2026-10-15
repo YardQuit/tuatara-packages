@@ -46,23 +46,28 @@ values: a list of (NAME . VALUE), NAME in lower case and VALUE unfolded (its
 lines joined) as text; and where its body starts (after the empty line, or
 END)."
   (let ((headers '()) (i start))
-    (loop while (< i end)
-          do (let* ((line-end (mime-line-end octets i end))
-                    (text-end (if (and (> line-end i) (= 13 (aref octets (1- line-end)))) (1- line-end) line-end)))
-               (cond ((= text-end i) (return-from mime-headers (values (nreverse headers) (min end (1+ line-end)))))
-                     ((and headers (member (aref octets i) '(32 9)))       ; a line folded on
-                      (setf (cdr (first headers))
-                            (concatenate 'string (cdr (first headers)) " "
-                                         (string-trim " 	" (octets-string octets :start i :end text-end)))))
-                     (t (let ((colon (position 58 octets :start i :end text-end)))
-                          (if colon
-                              (push (cons (string-downcase (string-trim " 	" (octets-string octets :start i :end colon)))
-                                          (string-trim " 	" (octets-string octets :start (1+ colon) :end text-end)))
-                                    headers)
-                              ;; no header: the body began without its empty line
-                              (return-from mime-headers (values (nreverse headers) i))))))
-               (setf i (1+ line-end))))
-    (values (nreverse headers) end)))
+    ;; each header's value is gathered as a list of its lines, last first,
+    ;; and joined once at the end
+    (flet ((finished ()
+             (nreverse (mapcar (lambda (header)
+                                 (cons (car header) (format nil "~{~a~^ ~}" (reverse (cdr header)))))
+                               headers))))
+      (loop while (< i end)
+            do (let* ((line-end (mime-line-end octets i end))
+                      (text-end (if (and (> line-end i) (= 13 (aref octets (1- line-end)))) (1- line-end) line-end)))
+                 (cond ((= text-end i) (return-from mime-headers (values (finished) (min end (1+ line-end)))))
+                       ((and headers (member (aref octets i) '(32 9)))       ; a line folded on
+                        (push (string-trim " 	" (octets-string octets :start i :end text-end))
+                              (cdr (first headers))))
+                       (t (let ((colon (position 58 octets :start i :end text-end)))
+                            (if colon
+                                (push (list (string-downcase (string-trim " 	" (octets-string octets :start i :end colon)))
+                                            (string-trim " 	" (octets-string octets :start (1+ colon) :end text-end)))
+                                      headers)
+                                ;; no header: the body began without its empty line
+                                (return-from mime-headers (values (finished) i))))))
+                 (setf i (1+ line-end))))
+      (values (finished) end))))
 
 (defun mime-parameters (text)
   "TEXT, a header's value such as text/plain; charset=\"utf-8\", as two
@@ -85,8 +90,13 @@ charset of its own (name*0*=utf-8''%C3%A9...) put together and decoded."
                         pieces)
                   (push (cons name value) plain)))))))
     ;; a value in parts or with its charset: name*=utf-8''..., name*0*=...; name*1=...
-    (dolist (name (remove-duplicates (mapcar #'first pieces) :test #'string=))
-      (let* ((mine (sort (remove-if-not (lambda (p) (string= name (first p))) pieces) #'< :key #'second))
+    (dolist (named (let ((by-name (make-hash-table :test #'equal)) (order '()))
+                     (dolist (piece (reverse pieces))
+                       (unless (gethash (first piece) by-name) (push (first piece) order))
+                       (push piece (gethash (first piece) by-name)))
+                     (mapcar (lambda (name) (cons name (gethash name by-name))) order)))
+      (let* ((name (car named))
+             (mine (sort (cdr named) #'< :key #'second))
              (charset nil)
              (octets (make-array 0 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0)))
         (loop for (nil index encoded value) in mine
@@ -99,7 +109,7 @@ charset of its own (name*0*=utf-8''%C3%A9...) put together and decoded."
                              (setf charset (subseq value 0 first) value (subseq value (1+ second))))))))
                    (loop for b across (if encoded (percent-decoded-octets value) (string-octets value))
                          do (vector-push-extend b octets))))
-        (push (cons name (mail-decode (coerce octets '(simple-array (unsigned-byte 8) (*))) charset)) plain)))
+        (push (cons name (charset-text (coerce octets '(simple-array (unsigned-byte 8) (*))) charset)) plain)))
     (values head (nreverse plain))))
 
 (defun mime-split-parameters (text)
@@ -133,7 +143,7 @@ left out."
                  (octets (if (char= encoding #\B)
                              (base64-octets (string-octets data))
                              (mime-quoted-printable-octets (string-octets (substitute #\Space #\_ data))))))
-            (write-string (mail-decode octets charset) out))
+            (write-string (charset-text octets charset) out))
           (setf at end last-end end))
         (write-string text out :start at)
         (get-output-stream-string out))))
@@ -239,7 +249,7 @@ given."
 
 (defun mime-part-text (part &key (most *outlook-largest-file*))
   "PART's body as text, in its charset, from at most MOST octets of it as written."
-  (mail-decode (mime-part-content part :most most) (cdr (assoc "charset" (mime-part-parameters part) :test #'string=))))
+  (charset-text (mime-part-content part :most most) (cdr (assoc "charset" (mime-part-parameters part) :test #'string=))))
 
 (defun mime-leaves (part)
   "The parts of PART that are made of no others, in order; a part that is a
@@ -431,11 +441,12 @@ entities decoded and spaces run together as HTML runs them."
                          ((and (string= name "a") (not ending))
                           (setf link (html-attribute tag "href") link-start (fill-pointer out)))
                          ((string= name "a")
-                          (let ((shown (string-trim " " (subseq out (min link-start (fill-pointer out))))))
-                            (when (and link (plusp (length link)) (string-not-equal shown link)
-                                       (string-not-equal (format nil "mailto:~a" shown) link))
-                              (put (format nil " <~a>" link))))
-                          (setf link nil))
+                          (when (and link (plusp (length link)))
+                            (let ((shown (string-trim " " (subseq out (min link-start (fill-pointer out))))))
+                              (when (and (string-not-equal shown link)
+                                         (string-not-equal (format nil "mailto:~a" shown) link))
+                                (put (format nil " <~a>" link)))))
+                          (setf link nil link-start (fill-pointer out)))
                          ((string= name "img")
                           (let ((alt (html-attribute tag "alt")) (source (html-attribute tag "src")))
                             (put (format nil "[picture~@[: ~a~]~@[; ~a~]]"

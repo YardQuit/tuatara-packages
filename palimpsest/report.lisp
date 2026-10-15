@@ -41,12 +41,6 @@ from it and deletes its own copies of the revisions, asking first when they
 were not saved."
   :lighter "Palimpsest" :interactive nil)
 
-(define-major-mode palimpsest-object-mode special-mode
-  "An object of a PDF examined by \\[palimpsest], read only: where it is in the
-file, its dictionary as written, and its stream decoded, as text, or in hex
-in a buffer of its own, which \\<palimpsest-object-mode>\\[push-button] on its name shows. \\[quit-window] closes."
-  :lighter "PDF object" :interactive nil)
-
 (defvar *palimpsest-reports* '()
   "The buffers showing a report on a PDF.")
 
@@ -422,10 +416,14 @@ report (SOURCE NIL)."
 (defun save-refusal (analysis folder)
   "Why the revisions, logs and report of ANALYSIS cannot be saved to FOLDER,
 in words; NIL when they can."
-  (let ((evidence (parent-path (analysis-path analysis)))
-        (cache (private-cache-directory "palimpsest/")))
+  (let* ((evidence (parent-path (analysis-path analysis)))
+         (cache (private-cache-directory "palimpsest/"))
+         ;; the folders as they really are: one reached through a link is the same folder
+         (real-folder (or (real-path-or-parent (string-right-trim "/" folder)) folder))
+         (real-evidence (or (real-path-or-parent (string-right-trim "/" evidence)) evidence)))
     (cond ((notany #'first (analysis-files analysis)) "no revision was written to save")
-          ((string= (slash-ended folder) (slash-ended evidence))
+          ((or (string= (slash-ended folder) (slash-ended evidence))
+               (string= (slash-ended real-folder) (slash-ended real-evidence)))
            "it is the folder of the PDF examined: nothing is written beside the evidence")
           ((path-within-p folder cache) "it is within palimpsest's own folder in the cache, which is cleared")
           ((and (path-kind folder) (not (eq :directory (path-kind folder)))) "it is not a folder")
@@ -694,20 +692,19 @@ buffer of its own (OBJECT-STREAM-NAME)."
 
 (defun show-object (analysis revision number &key hex)
   "Show the object NUMBER as REVISION of ANALYSIS's PDF has it in a buffer of
-its own, read only (OBJECT-TEXT); its stream, when it is shown in hex, in a
-buffer of its own too, the object's naming it as a button."
-  (let* ((buffer (buffer-in-mode (format nil "*Palimpsest: ~a object ~d, revision ~d*" (analysis-name analysis) number (1+ (revision-index revision)))
-                                 'palimpsest-object-mode))
-         (text (object-text analysis revision number :hex hex))
+its own, read only, as help is shown (OBJECT-TEXT); its stream, when it is
+shown in hex, in a buffer of its own too, the object's naming it as a link."
+  (let* ((text (object-text analysis revision number :hex hex))
          (name (object-stream-name analysis revision number))
          (at (search (format nil "In hex: ~a" name) text))
          (show-stream (lambda () (show-octets-in-hex name (object-stream-shown analysis revision number)))))
-    (setf (buffer-local buffer :read-only) t)
-    (set-made-text buffer text :buttons (and at (list (list (+ at 8) (+ at 8 (length name)) show-stream))))
-    (setf (buffer-point buffer) 0)
-    (pop-to-buffer buffer)
-    (when at (funcall show-stream))
-    buffer))
+    (show-help-pieces (if at
+                          (list (subseq text 0 (+ at 8))
+                                (list name :link show-stream)
+                                (subseq text (+ at 8 (length name))))
+                          (list text))
+                      :name (format nil "*Palimpsest: ~a object ~d, revision ~d*" (analysis-name analysis) number (1+ (revision-index revision))))
+    (when at (funcall show-stream))))
 
 (define-command palimpsest-show-object ()
   "Show an object of the PDF the report is on, read only: its place in the
@@ -731,13 +728,24 @@ an object named under a revision)."
             (show-object analysis revision number :hex (prefix-argument)))))))
 
 (defun report-revision-at (analysis)
-  "The revision whose part of the report point is in, or NIL when it is in none."
+  "The revision whose part of the report point is in, or NIL when it is in
+none: told by the report's own headings before point, never by what the PDF
+says, which the report quotes."
   (let* ((buffer (current-buffer))
-         (text (buffer-string buffer :start 0 :end (buffer-point buffer)))
-         (at (search "** Revision " text :from-end t)))
-    (when (and at (search "* Revisions" text))
-      (let ((k (parse-integer text :start (+ at 12) :junk-allowed t)))
-        (and k (<= 1 k (length (pdf-revisions (analysis-pdf analysis)))) (aref (pdf-revisions (analysis-pdf analysis)) (1- k)))))))
+         (point (buffer-point buffer))
+         (revisions (pdf-revisions (analysis-pdf analysis)))
+         (in-revisions nil) (found nil))
+    (loop for (start end face) in (second (analysis-shown analysis))
+          while (< start point)
+          when (eq face :heading)
+            do (let ((heading (string-trim '(#\Newline) (buffer-string buffer :start start :end end))))
+                 (cond ((string= heading "* Revisions") (setf in-revisions t found nil))
+                       ((uiop:string-prefix-p "** " heading)
+                        (let ((k (and in-revisions (uiop:string-prefix-p "** Revision " heading)
+                                      (parse-integer heading :start 12 :junk-allowed t))))
+                          (setf found (and k (<= 1 k (length revisions)) (aref revisions (1- k))))))
+                       (t (setf in-revisions nil found nil)))))
+    found))
 
 ;;; Asking for a PDF
 

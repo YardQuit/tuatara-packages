@@ -347,6 +347,48 @@ xmp:CreateDate='2020-03-01T09:00:00+13:00' xmp:CreatorTool='Kea Writer' xmpMM:Do
           (true (listp findings)))))
     (true (< (- (get-internal-real-time) start) (* 30 internal-time-units-per-second)))))
 
+(defun pal-pages (sizes fonts)
+  "A PDF of one page for each of SIZES (each a width) drawn with the font of
+FONTS beside it (each a base font name)."
+  (let ((count (length sizes)))
+    (pal-save #() (append (list '(1 . "<< /Type /Catalog /Pages 2 0 R >>")
+                                (cons 2 (format nil "<< /Type /Pages /Kids [~{~d 0 R~^ ~}] /Count ~d >>"
+                                                (loop for k below count collect (+ 10 (* 2 k))) count)))
+                          (loop for size in sizes for font in fonts for k from 0
+                                collect (cons (+ 10 (* 2 k))
+                                              (format nil "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ~d 792] /Resources << /Font << /F1 ~d 0 R >> >> >>"
+                                                      size (+ 11 (* 2 k))))
+                                collect (cons (+ 11 (* 2 k)) (format nil "<< /Type /Font /Subtype /Type1 /BaseFont /~a >>" font)))))))
+
+(define-test (palimpsest palimpsest-pages-unlike)
+  ;; one page of another size, one of another font: each named
+  (let* ((pdf (palimpsest::read-pdf (pal-pages '(612 612 500 612) '("Helvetica" "Helvetica" "Helvetica" "Courier"))))
+         (findings (palimpsest::check-pages pdf)))
+    (true (pal-finding findings :look "Page 3 has a size"))
+    (true (pal-finding findings :look "Page 4 shares no font"))
+    (false (pal-finding findings :look "Page 1 has"))
+    (false (pal-finding findings :look "Page 3 shares")))
+  ;; two pages each alone in its font: neither is named
+  (let* ((pdf (palimpsest::read-pdf (pal-pages '(612 612 612 612) '("Helvetica" "Helvetica" "Times" "Courier")))))
+    (false (pal-finding (palimpsest::check-pages pdf) :look "shares no font")))
+  ;; very many pages, every one of its own size and font: compared at once
+  (let* ((count 800)
+         (pdf (palimpsest::read-pdf (pal-pages (loop for k below count collect (+ 100 k))
+                                               (loop for k below count collect (format nil "Font~d" k)))))
+         (start (get-internal-real-time)))
+    (is = count (length (palimpsest::pages-of pdf (palimpsest::last-revision pdf))))
+    (false (pal-finding (palimpsest::check-pages pdf) :look "unlike every other page"))
+    (true (< (- (get-internal-real-time) start) (* 5 internal-time-units-per-second)))))
+
+(define-test (palimpsest palimpsest-mac-roman)
+  ;; MacRomanEncoding's 128 characters, the no-break space and the Apple logo in their places
+  (let ((table (palimpsest::base-encoding "/MacRomanEncoding")))
+    (is = 128 (length palimpsest::*mac-roman-high*))
+    (is eql (code-char #xA0) (aref table #xCA))
+    (is eql (code-char #xF8FF) (aref table #xF0))
+    (is eql #\Ò (aref table #xF1))
+    (is eql (code-char #x2C7) (aref table #xFF))))
+
 (define-test (palimpsest palimpsest-operators-budget)
   ;; the marks of pages kept to be used again no more than *most-marks-kept* in all, the pages compared alike
   (let ((palimpsest::*most-marks-kept* 2))
@@ -430,6 +472,11 @@ xmp:CreateDate='2020-03-01T09:00:00+13:00' xmp:CreatorTool='Kea Writer' xmpMM:Do
           (is equalp (pal-octets "BT /F1") (subseq (palimpsest::object-stream-shown analysis second-revision 4) 0 6))
           ;; saved where asked, each copy's sum its original's; never beside the evidence, in the cache, or over a file
           (pal-has (palimpsest::save-refusal analysis (namestring dir)) "the folder of the PDF examined")
+          ;; nor beside it through a link to its folder
+          (let ((link (namestring (merge-pathnames "evidence-link" dir))))
+            (tuatara.io:make-symbolic-link (string-right-trim "/" (namestring dir)) link)
+            (pal-has (palimpsest::save-refusal analysis (concatenate 'string link "/")) "the folder of the PDF examined")
+            (tuatara.io:remove-file link))
           (pal-has (palimpsest::save-refusal analysis folder) "within palimpsest's own folder in the cache")
           (let* ((kept (namestring (merge-pathnames "kept/" dir)))
                  (saved (palimpsest::save-copies analysis kept)))
@@ -567,4 +614,30 @@ xmp:CreateDate='2020-03-01T09:00:00+13:00' xmp:CreatorTool='Kea Writer' xmpMM:Do
                      (is = 2 number))))
             (when shown (tuatara.buffer:kill-buffer shown))
             (tuatara.buffer:kill-buffer report)
-            (tuatara.io:delete-tree folder)))))))
+            (tuatara.io:delete-tree folder))))))
+  ;; in the report, the revision whose part point is in, told by the report's own
+  ;; headings: a PDF that writes one into what it says of itself does not move it
+  (with-test-directory (dir)
+    (let* ((path (namestring (merge-pathnames "invoice.pdf" dir)))
+           (folder (tuatara.defaults::new-private-folder (tuatara.defaults::private-cache-directory "palimpsest/")))
+           (tuatara.command:*editor* (nth-value 1 (run-keys "" :text ""))))
+      (with-open-file (o path :direction :output :element-type '(unsigned-byte 8))
+        (write-sequence (pal-save (pal-original) (list (cons 6 (format nil "<< /Producer (Kea~%** Revision 1: 0x0 to 0x1, 1 octets~%) >>")))) o))
+      (let ((job (palimpsest::make-palimpsest-job nil path folder))
+            (report (tuatara.buffer:make-buffer "*Palimpsest: invoice.pdf*")))
+        (unwind-protect
+             (progn
+               (palimpsest::examine job)
+               (let ((analysis (palimpsest::palimpsest-job-analysis job)))
+                 (setf (tuatara.buffer:buffer-local report 'palimpsest::analysis) analysis)
+                 (destructuring-bind (text spans buttons) (palimpsest::analysis-shown analysis)
+                   (tuatara:set-made-text report text :spans spans :buttons buttons))
+                 (let ((tuatara.command:*current-buffer* report))
+                   ;; at the end, in the latest revision's part
+                   (setf (tuatara.buffer:buffer-point report) (tuatara.buffer:buffer-size report))
+                   (is = 2 (nth-value 1 (palimpsest::revision-meant)))
+                   ;; in the summary, in none
+                   (setf (tuatara.buffer:buffer-point report) 10)
+                   (false (nth-value 1 (palimpsest::revision-meant))))))
+          (tuatara.buffer:kill-buffer report)
+          (tuatara.io:delete-tree folder))))))

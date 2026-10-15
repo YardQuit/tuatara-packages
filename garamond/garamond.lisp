@@ -67,7 +67,8 @@ the lists, help and terminals Tuatara makes, where nobody writes prose.")
 (defun garamond-sentence-end-before (buffer position)
   "When the text of BUFFER before POSITION ends a sentence, a letter then . ?
 ! … or ‽ then any closing quotes or brackets: the position just after its
-punctuation; else NIL."
+punctuation; else NIL. A list item's number (1. 10.) ends none, as no letter
+comes before its full stop."
   (let ((p position))
     (loop while (and (plusp p) (sentence-closing-char-p (char-before-position buffer p)))
           do (setf p (buffer-forward-char buffer p -1)))
@@ -76,12 +77,6 @@ punctuation; else NIL."
         (and (plusp before)
              (alpha-char-p (char-before-position buffer before))
              p)))))
-
-(defun garamond-enumerator-p (buffer position)
-  "True when the full stop of BUFFER before POSITION numbers a list item: only
-spaces and digits before it on its line (1. 2. 10.)."
-  (let ((line (buffer-line-start buffer position)))
-    (and (cl-ppcre:scan "^[ \\t]*[0-9]+\\.$" (buffer-string buffer :start line :end position)) t)))
 
 ;;; Typing
 
@@ -115,7 +110,6 @@ number."
            (stop (garamond-sentence-end-before buffer run)))
       (when (and stop
                  (not (abbreviation-before-p buffer stop))
-                 (not (garamond-enumerator-p buffer stop))
                  (prose-p buffer (buffer-forward-char buffer stop -1)))
         (let ((spaces (- end run)))
           (cond ((= spaces 1)
@@ -243,7 +237,6 @@ sentence; not after a list item's number, nor in code, tables, links or maths
           for stop = (garamond-sentence-end-before buffer from)
           for wide = (if (and stop (abbreviation-before-p buffer stop)) 1 spaces)
           when (and stop (/= (- to from) wide)
-                    (not (garamond-enumerator-p buffer stop))
                     (funcall prose-p (buffer-forward-char buffer stop -1)))
           collect (list* from to wide))))
 

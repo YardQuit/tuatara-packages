@@ -2,8 +2,7 @@
 ;;;; Copyright (C) 2026 Michael A Jones.  GPL-3.0-or-later; see LICENSE.
 ;;;;
 ;;;; A package, not part of the editor: loaded by (load-package "kitty") in
-;;;; the init file. It extends the editor's own Lisp package until there is a
-;;;; package API.
+;;;; the init file.
 ;;;;
 ;;;; A kitty window is one of a kitty the editor starts itself, never your own
 ;;;; kitty: drawn by the graphics card, with kitty's ligatures and pictures.

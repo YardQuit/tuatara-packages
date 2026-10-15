@@ -392,7 +392,7 @@ Inner text.~@
 Epilogue.~%"
           (let ((o (coerce *png-test-octets* '(simple-array (unsigned-byte 8) (*)))))
             ;; in lines of 60, as mail writes it
-            (let ((all (tuatara.frontend.tui::base64-string o 0 (length o))))
+            (let ((all (tuatara.io:base64-string o)))
               (format nil "~{~a~^~%~}" (loop for at from 0 below (length all) by 60 collect (subseq all at (min (length all) (+ at 60))))))))
   "A saved mail for the tests: encoded words, quoted-printable, base64, parts within parts, an attached picture and message.")
 
@@ -417,7 +417,7 @@ Epilogue.~%"
         (is string= "Forwarded count" (outlook::mail-attachment-name (second attachments)))
         (is string= "Inner text." (string-right-trim '(#\Newline) (outlook::mail-body (outlook::mail-attachment-message (second attachments)))))))
   ;; quoted-printable and base64 on their own
-  (is string= "a=b é" (outlook::mail-decode (outlook::mime-quoted-printable-octets (sb-ext:string-to-octets (format nil "a=3Db =~%=C3=A9") :external-format :latin-1)) "utf-8"))
+  (is string= "a=b é" (tuatara.text:charset-text (outlook::mime-quoted-printable-octets (sb-ext:string-to-octets (format nil "a=3Db =~%=C3=A9") :external-format :latin-1)) "utf-8"))
   (is string= "Man" (tuatara.text:octets-latin-1 (tuatara.io:base64-octets (sb-ext:string-to-octets (format nil "TW~%Fu") :external-format :latin-1))))
   (is string= "Ma" (tuatara.text:octets-latin-1 (tuatara.io:base64-octets (sb-ext:string-to-octets "TWE=" :external-format :latin-1))))
   ;; a boundary that never comes: the body is the rest, and the message says so
@@ -432,7 +432,27 @@ Epilogue.~%"
   (false (outlook::mail-date-time "yesterday"))
   ;; headers in charsets of their own, and an unknown one read as the editor reads files
   (is string= "€" (outlook::mime-decode-words "=?windows-1252?Q?=80?="))
-  (is string= "plain" (outlook::mime-decode-words "plain")))
+  (is string= "plain" (outlook::mime-decode-words "plain"))
+  ;; a header folded over very many short lines, and a body of very many link
+  ;; ends, are read at once rather than hanging the reader
+  (let* ((lines 200000)
+         (octets (sb-ext:string-to-octets
+                  (with-output-to-string (out)
+                    (format out "Subject: a")
+                    (dotimes (i lines) (format out "~% b"))
+                    (format out "~%~%Body.~%"))
+                  :external-format :latin-1))
+         (start (get-internal-real-time))
+         (mail (outlook::eml-read octets)))
+    (is = (+ 1 (* 2 lines)) (length (outlook::mail-subject mail)))
+    (true (< (- (get-internal-real-time) start) (* 5 internal-time-units-per-second))))
+  (let* ((html (with-output-to-string (out) (dotimes (i 200000) (write-string "</a>x" out))))
+         (start (get-internal-real-time))
+         (text (outlook::html-text html)))
+    (is = 200000 (length text))
+    (true (< (- (get-internal-real-time) start) (* 5 internal-time-units-per-second))))
+  (is string= "Kea <https://example.org/>" (outlook::html-text "<a href=\"https://example.org/\">Kea</a>"))
+  (is string= "https://example.org/" (outlook::html-text "<a href=\"https://example.org/\">https://example.org/</a>")))
 
 ;;; Seen and opened in the editor
 

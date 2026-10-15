@@ -202,13 +202,39 @@ among them or, when another is there, wherever it is; a PDF-INDIRECT, or NIL."
   (multiple-value-bind (pairs data) (packed-objects pdf stream)
     (and pairs (pdf-packed-object data pairs number :index index :in (pdf-indirect-number stream)))))
 
+(defun saves-by-number (pdf)
+  "For each object number, the indexes of the revisions of PDF whose
+cross-reference sections name it, in order (a hash table of vectors); worked
+out once for PDF's revisions as they are now."
+  (let ((kept (getf (pdf-cache pdf) :saves-by-number)))
+    (if (and kept (eq (car kept) (pdf-revisions pdf)))
+        (cdr kept)
+        (let ((table (make-hash-table)) (revisions (pdf-revisions pdf)))
+          (loop for r from (1- (length revisions)) downto 0
+                do (job-check-stop)
+                   (maphash (lambda (number entry)
+                              (declare (ignore entry))
+                              (push r (gethash number table)))
+                            (revision-entries (aref revisions r))))
+          (maphash (lambda (number saves) (setf (gethash number table) (coerce saves 'simple-vector))) table)
+          (setf (getf (pdf-cache pdf) :saves-by-number) (cons revisions table))
+          table))))
+
 (defun lookup (pdf revision number)
   "What the cross-reference sections of REVISION and those before say of
 the object NUMBER, the latest first (an ENTRY), and the REVISION saying it;
 NIL when none does."
-  (loop for r from (revision-index revision) downto 0
-        for entry = (gethash number (revision-entries (aref (pdf-revisions pdf) r)))
-        when entry return (values entry (aref (pdf-revisions pdf) r))))
+  (let ((saves (gethash number (saves-by-number pdf)))
+        (index (revision-index revision)))
+    (when saves
+      ;; the last save at or before INDEX naming NUMBER
+      (let ((low 0) (high (length saves)))
+        (loop while (< low high)
+              do (let ((middle (floor (+ low high) 2)))
+                   (if (<= (svref saves middle) index) (setf low (1+ middle)) (setf high middle))))
+        (when (plusp low)
+          (let ((r (aref (pdf-revisions pdf) (svref saves (1- low)))))
+            (values (gethash number (revision-entries r)) r)))))))
 
 (defun found-object (pdf number limit)
   "The last object NUMBER written in PDF's body before the offset LIMIT, as scanning found it; NIL for none."

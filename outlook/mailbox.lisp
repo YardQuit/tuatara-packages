@@ -77,11 +77,12 @@ large."
 
 ;;; What readpst wrote
 
-(defun mailbox-folders (root &key (limit 1000000))
+(defun mailbox-folders (root &key (limit 1000000) (in-order t))
   "The folders under ROOT, a directory readpst wrote in, and ROOT itself,
 each (RELATIVE . FILES): RELATIVE its path from ROOT (\"\" for ROOT), FILES
-each (NAME . SIZE), its regular files in the order of their numbers. Links
-and other entries are passed over; at most LIMIT files, 64 folders deep."
+each (NAME . SIZE), its regular files, in the order of their numbers unless
+IN-ORDER is NIL. Links and other entries are passed over; at most LIMIT
+files, 64 folders deep."
   (let ((found '()) (count 0))
     (labels ((walk (relative depth)
                (let ((files '()) (folders '()))
@@ -91,10 +92,12 @@ and other entries are passed over; at most LIMIT files, 64 folders deep."
                      (cond ((not (eq own kind)))                    ; a link, whatever it leads to: passed over
                            ((and (eq kind :regular) (< count limit)) (incf count) (push (cons name size) files))
                            ((and (eq kind :directory) (< depth 64)) (push name folders)))))
-                 (push (cons relative (sort files (lambda (a b)
-                                                    (let ((x (parse-integer a :junk-allowed t)) (y (parse-integer b :junk-allowed t)))
-                                                      (if (and x y (/= x y)) (< x y) (string< a b))))
-                                            :key #'car))
+                 (push (cons relative (if in-order
+                                          (sort files (lambda (a b)
+                                                        (let ((x (parse-integer a :junk-allowed t)) (y (parse-integer b :junk-allowed t)))
+                                                          (if (and x y (/= x y)) (< x y) (string< a b))))
+                                                :key #'car)
+                                          files))
                        found)
                  (dolist (folder (sort folders #'string<))
                    (walk (concatenate 'string relative folder "/") (1+ depth))))))
@@ -104,7 +107,7 @@ and other entries are passed over; at most LIMIT files, 64 folders deep."
 (defun mailbox-written (root)
   "How many files readpst has written under ROOT, and their octets, as two values."
   (let ((files 0) (octets 0))
-    (dolist (folder (ignore-errors (mailbox-folders root)))
+    (dolist (folder (ignore-errors (mailbox-folders root :in-order nil)))
       (dolist (file (cdr folder))
         (incf files)
         (incf octets (cdr file))))
@@ -262,17 +265,20 @@ how it went (SANDBOX-RUN's second value) and what it said."
                            (error (e) (list nil :failed (princ-to-string e)))))
          (unless result (setf result (list nil :failed "it ended unexpectedly")))))
      :name "tuatara readpst")
-    (loop until result
+    (loop for second from 1
+          until result
           do (sleep 1)
-             (multiple-value-bind (files octets) (mailbox-written folder)
-               (setf (mailbox-job-files job) files (mailbox-job-octets job) octets)
-            (let ((free (ignore-errors (free-bytes folder))))
-                 (when (and (not full) (or (> octets *outlook-mailbox-space*) (and free (< free (expt 2 30)))))
-                   (setf full (if (> octets *outlook-mailbox-space*)
-                                  (format nil "readpst was stopped once it had written ~a (*outlook-mailbox-space*)" (octets-words octets))
-                                  "readpst was stopped: the drive of the cache directory has less than 1 GB free")
-                         (car stop) t))))
-          (when (car (job-cancel job)) (setf (car stop) t)))
+             ;; counted each second, and once many are written, every fifth
+             (when (or (< (mailbox-job-files job) 10000) (zerop (mod second 5)))
+               (multiple-value-bind (files octets) (mailbox-written folder)
+                 (setf (mailbox-job-files job) files (mailbox-job-octets job) octets)
+                 (let ((free (ignore-errors (free-bytes folder))))
+                   (when (and (not full) (or (> octets *outlook-mailbox-space*) (and free (< free (expt 2 30)))))
+                     (setf full (if (> octets *outlook-mailbox-space*)
+                                    (format nil "readpst was stopped once it had written ~a (*outlook-mailbox-space*)" (octets-words octets))
+                                    "readpst was stopped: the drive of the cache directory has less than 1 GB free")
+                           (car stop) t)))))
+             (when (car (job-cancel job)) (setf (car stop) t)))
     (job-check-stop)
     (destructuring-bind (output outcome said) result
       (declare (ignore output))
@@ -409,8 +415,8 @@ its searches narrowing it once it is listed (MAILBOX-RENDER)."
                       ;; readpst's messages in one folder, the text searched in each in another
                       (let ((messages (path-join (buffer-private-folder buffer) "mail/"))
                             (texts (path-join (buffer-private-folder buffer) "text/")))
-                        (ensure-directories-exist messages)
-                        (ensure-directories-exist texts)
+                        (ensure-directories messages)
+                        (ensure-directories texts)
                         (start-job-thread (make-mailbox-job buffer native messages texts) #'mailbox-work :name "tuatara mailbox")))
                     :private-folder "mailboxes/")))
 

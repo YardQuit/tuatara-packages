@@ -83,6 +83,45 @@ printf '\"errors\":[\"/tmp/files/photo-3.jpg: no face detected\"],\"arguments\":
         (is string= (format nil "master photo: no face detected in ~a" (tuatara.command:abbreviated-path (first photos)))
               (facecomp::facecomp-job-failure job))))))
 
+(defun facecomp-shown (&optional (tries 1000))
+  "A turn waiting, without holding up the editor, until no comparison of faces
+runs and *facecomp* is there, or TRIES turns have gone."
+  (lambda ()
+    (when (and (> tries 1)
+               (or (find-if #'facecomp::facecomp-job-p tuatara.runtime:*jobs*)
+                   (null (tuatara.buffer:find-buffer "*facecomp*"))))
+      (sleep 0.01)
+      (tuatara.frontend.fake:fake-queue-action (tuatara.command:editor-frontend tuatara.command:*editor*)
+                                               (facecomp-shown (1- tries))))))
+
+(define-test (facecomp marked-in-rimu)
+  (with-test-directory (dir)
+    (let* ((given (merge-pathnames "case/" dir))
+           (program tuatara-user:*facecomp-program*))
+      (dolist (name '("alice.jpg" "crowd *.png" "dark.jpg"))
+        (let ((path (concatenate 'string (namestring given) name)))
+          (tuatara.io:ensure-directories path)
+          (tuatara.io:replace-file path "not really a picture")))
+      (unless (eq :ready (tuatara.io:sandbox-status))
+        (skip "no sandbox here"))
+      (let ((old (tuatara.buffer:find-buffer "*facecomp*")))
+        (when old (tuatara.buffer:kill-buffer old)))
+      ;; set, not bound: the comparison runs in a thread of its own
+      (setf tuatara-user:*facecomp-program* (facecomp-stand-in dir given))
+      (unwind-protect
+           ;; C-c f m marks the master, m the photos, C-c f c compares them, the report shown as help
+           (multiple-value-bind (f editor)
+               (rimu-session given (list "g f a l i c e RET C-c f m g f c r o w d RET m g f d a r k RET m C-c f c" (facecomp-shown) :tick)
+                             :width 160 :height 30)
+             (declare (ignore f editor))
+             (let ((report (tuatara.buffer:find-buffer "*facecomp*")))
+               (true report "~a" (let ((m (tuatara.buffer:find-buffer "*Messages*"))) (and m (tuatara.buffer:buffer-string m))))
+               (when report
+                 (true (typep (tuatara.modes:buffer-major-mode report) 'tuatara.defaults::help-mode))
+                 (true (search "92.3% match, Very likely" (tuatara.buffer:buffer-string report)))
+                 (true (search "alice.jpg" (tuatara.buffer:buffer-string report))))))
+        (setf tuatara-user:*facecomp-program* program)))))
+
 (define-test (facecomp settings-checked)
   (with-test-directory (dir)
     (flet ((refused (setting value words)

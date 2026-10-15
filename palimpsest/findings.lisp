@@ -473,12 +473,23 @@ object it adds or changes, or a new page) set beside what it was before."
 
 (defun check-twice (pdf)
   "Objects written twice within one save."
-  (loop for revision across (pdf-revisions pdf)
-        append (let ((seen (make-hash-table)) (twice '()))
-                 (loop for o across (pdf-found pdf)
-                       when (and (<= (revision-start revision) (pdf-indirect-at o)) (< (pdf-indirect-at o) (revision-end revision)))
-                         do (let ((earlier (gethash (pdf-indirect-number o) seen)))
-                              (if earlier (push (list (pdf-indirect-number o) earlier o) twice) (setf (gethash (pdf-indirect-number o) seen) o))))
+  (loop with found = (pdf-found pdf)
+        for revision across (pdf-revisions pdf)
+        append (let ((seen (make-hash-table)) (twice '())
+                     ;; the objects are in the order of their offsets: the first of this save's
+                     (first (let ((low 0) (high (length found)))
+                              (loop while (< low high)
+                                    do (let ((middle (floor (+ low high) 2)))
+                                         (if (< (pdf-indirect-at (aref found middle)) (revision-start revision))
+                                             (setf low (1+ middle))
+                                             (setf high middle))))
+                              low)))
+                 (job-check-stop)
+                 (loop for k from first below (length found)
+                       for o = (aref found k)
+                       while (< (pdf-indirect-at o) (revision-end revision))
+                       do (let ((earlier (gethash (pdf-indirect-number o) seen)))
+                            (if earlier (push (list (pdf-indirect-number o) earlier o) twice) (setf (gethash (pdf-indirect-number o) seen) o))))
                  (when twice
                    (list (found :look (format nil "~@(~a~) writes ~d object~:p twice: the later copy is the one shown; written by hand or by a careless program."
                                               (revision-name revision) (length twice))
@@ -736,9 +747,13 @@ object it adds or changes, or a new page) set beside what it was before."
               out)))
     out))
 
+(defun string-octets-as-read (text)
+  "The octets of TEXT, a PDF string as it was read, a character for each octet."
+  (map 'octets (lambda (c) (logand 255 (char-code c))) text))
+
 (defun id-hex (text)
   "TEXT, a part of a file's /ID as read, in hex."
-  (octets-hex (map 'octets (lambda (c) (logand 255 (char-code c))) text) :upper-case t))
+  (octets-hex (string-octets-as-read text) :upper-case t))
 
 ;;; What the pages draw
 
@@ -1177,7 +1192,7 @@ dictionary with a /ByteRange among its objects."
                (signed-end (and (= (length range) 4) (every #'integerp range) (+ (third range) (fourth range))))
                (covered (and signed-end (find-if (lambda (r) (and (<= (+ (revision-eof r) 5) signed-end) (<= signed-end (revision-end r)))) (pdf-revisions pdf))))
                (contents (pdf-get dict "/Contents"))
-               (raw (and (stringp contents) (map 'octets (lambda (c) (logand 255 (char-code c))) contents)))
+               (raw (and (stringp contents) (string-octets-as-read contents)))
                (reference (find-if (lambda (r) (name-p (pdf-get (deref pdf last r) "/TransformMethod") "/DocMDP")) (pdf-array-items (dref pdf last dict "/Reference"))))
                (permission (or (let ((p (pdf-get (dref pdf last (deref pdf last reference) "/TransformParams") "/P"))) (and (integerp p) p))
                                (and reference 2)))
@@ -1273,10 +1288,11 @@ dictionary with a /ByteRange among its objects."
     (loop for r across (pdf-revisions pdf)
           for before = nil then previous
           for previous = r
-          do (when before
+          do (job-check-stop)
+             (when before
                (let ((old (remove nil (mapcar #'page-number (pages-of pdf before))))
                      (new (remove nil (mapcar #'page-number (pages-of pdf r)))))
-                 (let ((added (set-difference new old)) (removed (set-difference old new)))
+                 (let ((added (numbers-not-in new old)) (removed (numbers-not-in old new)))
                    (when (or added removed)
                      (push (found :look (format nil "~@(~a~) ~@[adds ~d page~:p~]~:[~; and ~]~@[removes ~d page~:p~]: the document now has ~d."
                                                 (revision-name r) (and added (length added)) (and added removed) (and removed (length removed)) (length new))
@@ -1298,33 +1314,46 @@ dictionary with a /ByteRange among its objects."
     (let* ((last (last-revision pdf)) (pages (pages-of pdf last)))
       (when (>= (length pages) 3)
         (flet ((odd (key words)
-                 (let ((values (mapcar key pages)))
-                   (dolist (page pages)
-                     (let ((v (funcall key page)))
-                       (when (and (= 1 (count v values :test #'equal)) (>= (- (length pages) 1) 2)
-                                  (= 1 (length (remove-duplicates (remove v values :test #'equal) :test #'equal))))
-                         (push (found :look (format nil "Page ~d has a ~a (~a) unlike every other page: put in from another document." (1+ (page-index page)) words v)
-                                      :rule "Pages of one document share their size and rotation."
-                                      :revision (revision-index last) :page (1+ (page-index page)) :objects (and (page-number page) (list (page-number page)))
-                                      :evidence (and (page-number page) (nth-value 0 (object-evidence pdf last (page-number page)))))
-                               out)))))))
+                 ;; a page is odd when its value is its own and every other page shares one value
+                 (let ((counts (make-hash-table :test 'equal)) (values (mapcar key pages)))
+                   (dolist (v values) (incf (gethash v counts 0)))
+                   (job-check-stop)
+                   (loop for page in pages for v in values
+                         when (and (= 2 (hash-table-count counts)) (= 1 (gethash v counts)))
+                         do (push (found :look (format nil "Page ~d has a ~a (~a) unlike every other page: put in from another document." (1+ (page-index page)) words v)
+                                         :rule "Pages of one document share their size and rotation."
+                                         :revision (revision-index last) :page (1+ (page-index page)) :objects (and (page-number page) (list (page-number page)))
+                                         :evidence (and (page-number page) (nth-value 0 (object-evidence pdf last (page-number page)))))
+                                  out)))))
           (odd (lambda (p) (format nil "~{~,0f~^ by ~}" (list (- (third (page-media p)) (first (page-media p))) (- (fourth (page-media p)) (second (page-media p)))))) "size")
           (odd (lambda (p) (format nil "~d°" (page-rotate p))) "rotation"))
         (let ((faces (mapcar (lambda (page)
+                               (job-check-stop)
                                (remove-duplicates (loop for (nil . value) in (let ((f (dref pdf last (page-resources page) "/Font"))) (and (pdf-dictionary-p f) f))
                                                         collect (font-base (font-of pdf last value)))
                                                   :test #'string=))
                              pages)))
+          ;; a page is put in when it alone shares no font with any other page
           (when (every (lambda (f) f) faces)
-            (loop for page in pages for f in faces
-                  do (let ((others (remove f faces :test #'eq)))
-                       (when (and (notany (lambda (o) (intersection f o :test #'string=)) others)
-                                  (every (lambda (o) (some (lambda (o2) (and (not (eq o o2)) (intersection o o2 :test #'string=))) others)) others))
-                         (push (found :look (format nil "Page ~d shares no font with any other page (~{~a~^, ~}): put in from another document." (1+ (page-index page)) f)
-                                      :rule "Pages of one document share their fonts."
-                                      :revision (revision-index last) :page (1+ (page-index page)))
-                               out))))))))
+            (let ((pages-of-font (make-hash-table :test 'equal)))
+              (dolist (f faces)
+                (dolist (font f) (incf (gethash font pages-of-font 0))))
+              (let ((alone (loop for page in pages for f in faces
+                                 when (every (lambda (font) (= 1 (gethash font pages-of-font))) f)
+                                   collect (cons page f))))
+                (when (= 1 (length alone))
+                  (destructuring-bind (page . f) (first alone)
+                    (push (found :look (format nil "Page ~d shares no font with any other page (~{~a~^, ~}): put in from another document." (1+ (page-index page)) f)
+                                 :rule "Pages of one document share their fonts."
+                                 :revision (revision-index last) :page (1+ (page-index page)))
+                          out)))))))))
     out))
+
+(defun numbers-not-in (numbers others)
+  "Those of NUMBERS not among OTHERS, in their order."
+  (let ((there (make-hash-table)))
+    (dolist (n others) (setf (gethash n there) t))
+    (remove-if (lambda (n) (gethash n there)) numbers)))
 
 ;;; Actions, embedded files, encryption
 

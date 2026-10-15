@@ -63,7 +63,7 @@ none or an empty one."
          (value (cond ((null entry) nil)
                       ((stringp (cdr entry)) (cdr entry))
                       ((and (= (car entry) #x001E) (vectorp (cdr entry)))
-                       (let ((text (mail-decode (cdr entry) (or (mail-codepage-charset codepage) "windows-1252"))))
+                       (let ((text (charset-text (cdr entry) (or (mail-codepage-charset codepage) "windows-1252"))))
                          (subseq text 0 (or (position (code-char 0) text) (length text)))))
                       ((integerp (cdr entry)) (princ-to-string (cdr entry))))))
     (and value (plusp (length value)) value)))
@@ -148,7 +148,7 @@ item holds."
                         (head (octets-latin-1 octets :end (min 2048 (length octets))))
                         (charset (multiple-value-bind (m g) (cl-ppcre:scan-to-strings "(?i)charset\\s*=\\s*[\"']?([-\\w:.]+)" head)
                                    (and m (aref g 0)))))
-                   (mail-decode octets (or charset (mail-codepage-charset (msg-value properties #x3FDE)) "utf-8"))))))
+                   (charset-text octets (or charset (mail-codepage-charset (msg-value properties #x3FDE)) "utf-8"))))))
       (handler-case
           (cond (plain (setf (mail-body mail) plain (mail-body-kind mail) :plain))
                 (html (setf (mail-body mail) (html-text (html-source)) (mail-body-kind mail) :html))
