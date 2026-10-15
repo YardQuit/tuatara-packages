@@ -86,7 +86,7 @@ to 1; ANALYSIS, what it found."
 structure read, each revision compared with the one before, every sign
 found, and each revision written out with its log."
   (let* ((path (palimpsest-job-path job))
-         (octets (call-with-file path (lambda (fd name size) (docx-file-octets fd name size *palimpsest-largest-file*))))
+         (octets (file-octets path :limit *palimpsest-largest-file*))
          (analysis (make-analysis :path path :name (native-file-name path) :size (length octets) :folder (palimpsest-job-folder job))))
     (funcall (stage job "Summing the PDF" 0.02 0.05) 0)
     (setf (analysis-sha256 analysis) (file-sha256 path :cancel (job-cancel job)))

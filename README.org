@@ -101,9 +101,14 @@ package most often needs:
 - Paths :: =native=, =expand-path=, =parent-path=, =path-join=,
   =slash-ended=, =path-within-p= (inside a folder, =..= taken into
   account), =native-file-name=, =native-file-stem=, =native-file-type=.
-- XML :: =xml-parse= (bounded in depth and size), then =xml-name=,
-  =xml-attribute=, =xml-children=, =xml-child=, =xml-local-name=,
-  =xml-local-children=, =xml-find-all= and =xml-all-text= to walk the tree.
+- Files read whole :: =file-octets= with =:limit=, or =fd-octets= on a
+  file already open, reads a file whole and refuses one larger than the
+  limit, however large it turns out to be as it is read.
+- XML :: =xml-parse= (bounded in depth and size; =:most= sets how many
+  elements), then =xml-name=, =xml-attribute=, =xml-children=,
+  =xml-child=, =xml-local-name=, =xml-local-children=, =xml-find-all= and
+  =xml-all-text= to walk the tree; =xml-escape= writes text into XML or
+  HTML.
 - Octets, text and dates :: the type =octets= and its readers,
   =string-octets=, =octets-string=, =utf-16-text=; =time-words=,
   =utc-time-words=, =iso-date-time=, =format-time=; =octets-hex= writes

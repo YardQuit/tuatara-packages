@@ -47,7 +47,7 @@ saved mail (a .eml that is not binary); NIL for any other."
 first octets); an error saying why when it cannot be read as one or holds
 more than *OUTLOOK-LARGEST-FILE*. Reads it whole: call it from a thread
 working in the background."
-  (let ((octets (call-with-file native (lambda (fd name size) (docx-file-octets fd name size *outlook-largest-file*)))))
+  (let ((octets (file-octets native :limit *outlook-largest-file*)))
     (if (octets-at-p octets *compound-file-signature*) (msg-read octets) (eml-read octets))))
 
 ;;; The text shown
@@ -326,7 +326,7 @@ own colours."
                                               (and names (list (list "Attachments" (format nil "~{~a~^; ~}" names)))))
             do (format out "<tr><th style=\"text-align:left;vertical-align:top;padding:0 3mm 1mm 0;white-space:nowrap\">~a</th>~
                             <td style=\"padding:0 0 1mm;overflow-wrap:anywhere;font-weight:~:[normal~;bold~]\">~a</td></tr>"
-                       (docx-escape label) (eq face :strong) (docx-escape value)))
+                       (xml-escape label) (eq face :strong) (xml-escape value)))
       (format out "</table>"))))
 
 (defun mail-page-foot (mail)
@@ -335,7 +335,7 @@ after the message, or NIL when it has none."
   (when (mail-headers mail)
     (format nil "<div style=\"break-before:page;font:10pt sans-serif\"><p style=\"margin:0 0 3mm;font-weight:bold\">Internet headers</p>~
                  <pre style=\"margin:0;font:8pt monospace;white-space:pre-wrap;overflow-wrap:anywhere\">~a</pre></div>"
-            (docx-escape (string-right-trim '(#\Newline) (remove #\Return (mail-headers mail)))))))
+            (xml-escape (string-right-trim '(#\Newline) (remove #\Return (mail-headers mail)))))))
 
 (defun mail-page-with-headers (html mail)
   "HTML, a message's, with MAIL's headers (MAIL-PAGE-HEAD) at the start of
@@ -450,7 +450,7 @@ size and how to read it; NIL for any other file."
                 (or (and (string-equal type "msg") (eq kind :ole))
                     (and (string-equal type "eml") (not (binary-head-p octets)))))
            (handler-case
-               (let ((all (docx-file-octets fd path size *outlook-largest-file*)))
+               (let ((all (fd-octets fd path size *outlook-largest-file*)))
                  (mail-brief-text (if (eq kind :ole) (msg-read all) (eml-read all))))
              (error (e) (format nil "~a could not be read as a message: ~a" name e)))))))
 

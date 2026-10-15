@@ -178,7 +178,7 @@ its tree, and its object number; NIL when it has none or it cannot be read."
     (when object
       (multiple-value-bind (data why) (stream-data pdf object :limit (* 16 1024 1024))
         (when (and data (null why))
-          (let ((tree (ignore-errors (let ((*pdf-most-items* 1000)) (xml-parse (octets-string data))))))
+          (let ((tree (ignore-errors (xml-parse (octets-string data) :most 100000))))
             (when tree
               (values (ignore-errors (xmp-fields tree)) tree (second value)))))))))
 
