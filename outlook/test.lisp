@@ -792,7 +792,7 @@ and the subjects kept."
     (let ((list (mailbox-search-test-list dir)))
       (is equal '("First" "Second" "Third" "Fourth" "Fifth") (mailbox-subjects list))
       ;; the text written for each message: every header, the text parts decoded, attachments by name
-      (let ((texts (loop for entry in (tuatara.buffer:buffer-local list 'tuatara.defaults::list-entries)
+      (let ((texts (loop for entry across (coerce (tuatara.buffer:buffer-local list 'tuatara.defaults::list-entries) 'vector)
                          for item = (tuatara.defaults::entry-member entry)
                          when (outlook::mailbox-item-p item) collect (outlook::mailbox-item-search-text item nil))))
         (has (first texts) "x-case-number: walrus-7")

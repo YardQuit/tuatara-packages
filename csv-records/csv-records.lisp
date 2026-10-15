@@ -23,85 +23,12 @@
 ;; made for a Tuatara whose API has these: an older one is refused at once,
 ;; rather than each command failing on a name it lacks
 (let ((missing (remove-if (lambda (name) (eq (nth-value 1 (find-symbol name '#:tuatara)) :external))
-                          '("CSV-DELIMITER" "CSV-FIELD-SPANS" "CSV-FIELD-BOUNDS" "CSV-VALUE-BOUNDS" "CSV-FIELD-VALUE" "CSV-HEADER-NAMES"
-                            "COMPILE-REGEX" "SELECTED-LINES" "REWRITE-LINES"))))
+                          '("CSV-DELIMITER" "CSV-FIELD-SPANS" "CSV-FIELD-BOUNDS" "CSV-VALUE-BOUNDS"
+                            "SELECTED-LINES" "REWRITE-LINES" "FILTER-LINES"))))
   (when missing
     (error "csv-records needs a newer Tuatara, whose API has ~{~(~a~)~^, ~}: build it again from its sources" missing)))
 
-;;; The columns asked for
-
-(defun column-index (answer names)
-  "The column ANSWER names, counted from 0: a header among NAMES, a number or
-$ and a number (0 or $0 the first), or NIL for the whole record (an empty
-answer, \"whole record\" or $*); :UNKNOWN for anything else."
-  (let ((answer (string-trim " " answer)))
-    (cond ((or (string= answer "") (string-equal answer "whole record") (string= answer "$*")) nil)
-          ((position answer names :test #'string=))
-          ((position answer names :test #'string-equal))
-          (t (let ((number (ignore-errors (parse-integer (string-left-trim "$" answer)))))
-               (if (and number (>= number 0)) number :unknown))))))
-
-(defun read-column (buffer prompt)
-  "Ask with PROMPT for a column of BUFFER, offering its header's names and the
-whole record: its index from 0, or NIL for the whole record."
-  (let* ((names (csv-header-names buffer))
-         (candidates (cons (make-candidate "whole record" :annotation "the line as it is")
-                           (loop for name in names
-                                 for n from 0
-                                 collect (make-candidate name :annotation (format nil "$~d" n)))))
-         (answer (completing-read prompt candidates :keep-order t))
-         (index (column-index answer names)))
-    (when (eq index :unknown)
-      (error "No such column: ~a (a header's name, or a number from 0)" answer))
-    index))
-
-;;; Keeping and deleting records
-
-(defun field-matches-p (scanner text length delimiter index)
-  "True when SCANNER matches the value of field INDEX of the record TEXT holds
-in its first LENGTH characters, or with INDEX NIL the record itself; a record
-without that field does not match. The value is matched where it stands,
-nothing made, unless it holds a doubled quote, as every record of a large
-file is."
-  (if (null index)
-      (and (cl-ppcre:scan scanner text :start 0 :end length) t)
-      (multiple-value-bind (field-start field-end) (csv-field-bounds text 0 length delimiter index)
-        (when field-start
-          (multiple-value-bind (start end quoted) (csv-value-bounds text field-start field-end)
-            (and (if (and quoted (search "\"\"" text :start2 start :end2 end))
-                     (cl-ppcre:scan scanner (csv-field-value text field-start field-end))
-                     (cl-ppcre:scan scanner text :start start :end end))
-                 t))))))
-
-(defun records-range (buffer)
-  "The records a filter works on, START and END of whole lines: the lines the
-selection touches, or every line; never the first, the header."
-  (multiple-value-bind (start end) (selected-lines buffer)
-    (let ((after-header (min (buffer-size buffer) (1+ (buffer-line-end buffer 0)))))
-      (if start
-          (values (max start after-header) end)
-          (values after-header (buffer-size buffer))))))
-
-(defun filter-records (keep)
-  "Ask for a column and a regular expression, and delete the records whose
-column the pattern does not match, with KEEP, or those it matches."
-  (let* ((buffer (current-buffer))
-         (index (read-column buffer (if keep "Keep records whose column: " "Delete records whose column: ")))
-         (pattern (read-string (format nil "~:[Delete~;Keep~] records whose ~a matches regexp: "
-                                       keep (if index (format nil "$~d" index) "line"))))
-         (scanner (and (plusp (length pattern)) (ignore-errors (compile-regex pattern))))
-         (delimiter (csv-delimiter buffer)))
-    (multiple-value-bind (start end) (records-range buffer)
-      (cond ((zerop (length pattern)) (message "No pattern: no record kept out"))
-            ((null scanner) (message "Not a valid pattern: ~a" pattern))
-            ((>= start end) (message "No records but the header"))
-            (t (rewrite-lines buffer start end (if keep "Keeping records" "Deleting records")
-                              (lambda (text length)
-                                (let ((matches (field-matches-p scanner text length delimiter index)))
-                                  (if keep matches (not matches))))
-                              (lambda (gone changed)
-                                (declare (ignore changed))
-                                (format nil "Deleted ~:d ~:[matching~;non-matching~] record~p" gone keep gone))))))))
+;;; Records kept or deleted
 
 (define-command csv-keep-records ()
   "Keep the records whose column matches a regular expression and delete the
@@ -111,12 +38,12 @@ alone, quotes taken off (^ and $ are its start and end). Smart case, as in searc
 pattern with a capital letter heeds case. The lines the selection touches,
 or every record; the header line always stays. One step to undo; a large
 file is filtered in the background."
-  (filter-records t))
+  (filter-lines 'csv-keep-records t :whole t :noun "record"))
 
 (define-command csv-delete-records ()
   "Delete the records whose column matches a regular expression, keeping the
 rest: asked for as \\[csv-keep-records] asks. The header line always stays."
-  (filter-records nil))
+  (filter-lines 'csv-delete-records nil :whole t :noun "record"))
 
 ;;; Rearranging the columns
 
