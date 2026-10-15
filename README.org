@@ -179,6 +179,10 @@ says what it is for.
   OpenCV Zoo's (YuNet, SFace) and the ONNX Model Zoo's (ArcFace).
 - Microsoft's Open Specifications (MS-CFB, MS-OXMSG) :: how outlook reads an
   Outlook item; mailboxes are read by readpst, from libpst.
+- WeasyPrint, by CourtBouillon :: outlook draws a message as it looks with
+  it, shut in.
+- awk and csvdt :: how csv-records rearranges columns, as awk's print does,
+  counted from 0 as csvdt counts them (csvdt by the same author).
 - kitty, by Kovid Goyal :: the program the kitty package drives, by its remote
   control.
 - ISO 32000 :: how palimpsest reads a PDF; the shadow attacks it looks for
